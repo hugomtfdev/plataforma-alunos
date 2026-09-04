@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Registro de Alunos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@400;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div>
+        <span class="brand-eyebrow">Secretaria escolar</span>
+        <h1 class="brand-title">Registro de Alunos</h1>
+      </div>
+      <button class="btn btn-primary" id="btn-new-student">+ Matricular aluno</button>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <section id="view-list" class="view">
+      <div class="stats-row" id="stats-row"></div>
+
+      <div class="toolbar">
+        <input id="search-input" type="search" placeholder="Buscar por nome ou curso..." aria-label="Buscar aluno" />
+      </div>
+
+      <div class="table-wrap">
+        <table class="ledger-table" id="students-table">
+          <thead>
+            <tr>
+              <th>Aluno</th>
+              <th>Matriculado desde</th>
+              <th>Frequência</th>
+              <th>Risco de evasão</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="students-tbody">
+            <tr class="loading-row"><td colspan="5">Carregando registros...</td></tr>
+          </tbody>
+        </table>
+        <div id="empty-state" class="empty-state" hidden>
+          <h3>Nenhum aluno matriculado</h3>
+          <p>A lista de alunos ativos aparece aqui assim que a primeira matrícula for feita.</p>
+          <button class="btn btn-primary" id="btn-empty-new">+ Matricular primeiro aluno</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-detail" class="view" hidden>
+      <button class="btn-link" id="btn-back">← Voltar para a lista</button>
+      <div id="detail-content"></div>
+    </section>
+
+  </main>
+</div>
+
+<div class="modal-overlay" id="modal-overlay" hidden>
+  <div class="modal" id="modal-box" role="dialog" aria-modal="true"></div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="script.js"></script>
+</body>
+</html>

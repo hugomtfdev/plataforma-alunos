@@ -9,9 +9,29 @@
     "Engenharia Elétrica", "Engenharia Mecânica", "Engenharia Química", "Marketing",
     "Pedagogia", "Psicologia", "Sistemas de Informação"
   ];
+  var TURNOS_DISPONIVEIS = ["Manhã", "Tarde", "Noite", "Integral"];
 
   var STORAGE_KEY = "alunos-data";
-  var state = { alunos: [], loaded: false, query: "" };
+  var state = { alunos: [], loaded: false, query: "", risco: "", turno: "", curso: "" };
+  var limparAutocompleteAtual = null;
+
+  var alunosService = {
+    listar: function(){
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return null;
+
+      var alunosSalvos = JSON.parse(raw);
+      if(!Array.isArray(alunosSalvos)) return null;
+
+      return alunosSalvos.filter(function(aluno){
+        return aluno && typeof aluno === "object" && typeof aluno.nome === "string" && typeof aluno.curso === "string";
+      });
+    },
+    salvar: function(alunos){
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(alunos));
+      return true;
+    }
+  };
 
   /* ---------------- utilidades ---------------- */
 
@@ -33,6 +53,8 @@
   }
 
   function ativarAutocompleteCurso(inputId, listaId){
+    if(limparAutocompleteAtual) limparAutocompleteAtual();
+
     var input = document.getElementById(inputId);
     var lista = document.getElementById(listaId);
     var indiceAtivo = -1;
@@ -46,18 +68,21 @@
       if(!cursos.length){
         lista.innerHTML = '<li class="sem-resultado">Nenhum curso encontrado — o texto digitado será mantido.</li>';
       }else{
-        lista.innerHTML = cursos.map(function(curso){
-          return '<li data-valor="' + escapeHtml(curso) + '">' + escapeHtml(curso) + '</li>';
+        lista.innerHTML = cursos.map(function(curso, index){
+          return '<li id="' + listaId + '-opcao-' + index + '" role="option" data-valor="' + escapeHtml(curso) + '">' + escapeHtml(curso) + '</li>';
         }).join("");
       }
 
       indiceAtivo = -1;
       lista.hidden = false;
+      input.setAttribute("aria-expanded", "true");
     }
 
     function fecharSugestoes(){
       lista.hidden = true;
       indiceAtivo = -1;
+      input.setAttribute("aria-expanded", "false");
+      input.removeAttribute("aria-activedescendant");
     }
 
     function confirmarSugestao(){
@@ -81,7 +106,9 @@
           : (indiceAtivo - 1 + sugestoes.length) % sugestoes.length;
         Array.prototype.forEach.call(sugestoes, function(item, index){
           item.classList.toggle("ativo", index === indiceAtivo);
+          item.setAttribute("aria-selected", index === indiceAtivo ? "true" : "false");
         });
+        input.setAttribute("aria-activedescendant", sugestoes[indiceAtivo].id);
       }else if(e.key === "Enter" && !lista.hidden){
         e.preventDefault();
         confirmarSugestao();
@@ -95,9 +122,14 @@
       input.value = sugestao.getAttribute("data-valor");
       fecharSugestoes();
     });
-    document.addEventListener("click", function(e){
+    function fecharAoClicarFora(e){
       if(e.target !== input && !lista.contains(e.target)) fecharSugestoes();
-    });
+    }
+    document.addEventListener("click", fecharAoClicarFora);
+    limparAutocompleteAtual = function(){
+      document.removeEventListener("click", fecharAoClicarFora);
+      limparAutocompleteAtual = null;
+    };
   }
 
   function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
@@ -159,9 +191,9 @@
 
   function carregarDados(){
     try{
-      var raw = localStorage.getItem(STORAGE_KEY);
-      if(raw){
-        state.alunos = JSON.parse(raw);
+      var alunosSalvos = alunosService.listar();
+      if(alunosSalvos){
+        state.alunos = alunosSalvos;
         return;
       }
     }catch(err){
@@ -174,8 +206,7 @@
 
   function salvarDados(){
     try{
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.alunos));
-      return true;
+      return alunosService.salvar(state.alunos);
     }catch(err){
       console.error("Erro ao salvar dados", err);
       mostrarToast("Não foi possível salvar as alterações.", "erro");
@@ -196,11 +227,14 @@
   /* ---------------- renderização: lista ---------------- */
 
   function alunosFiltrados(){
-    var q = state.query.trim().toLowerCase();
+    var q = normalizarTexto(state.query.trim());
     var ativos = state.alunos.filter(function(a){ return a.status === "ativo"; });
-    if(!q) return ativos;
     return ativos.filter(function(a){
-      return a.nome.toLowerCase().indexOf(q) !== -1 || a.curso.toLowerCase().indexOf(q) !== -1;
+      var correspondeBusca = !q || normalizarTexto(a.nome).indexOf(q) !== -1 || normalizarTexto(a.curso).indexOf(q) !== -1;
+      var correspondeRisco = !state.risco || calcularRisco(a).nivel === state.risco;
+      var correspondeTurno = !state.turno || (a.turno || "Não informado") === state.turno;
+      var correspondeCurso = !state.curso || a.curso === state.curso;
+      return correspondeBusca && correspondeRisco && correspondeTurno && correspondeCurso;
     });
   }
 
@@ -245,7 +279,7 @@
         '<tr>' +
           '<td class="cell-name">' +
             '<button data-id="' + a.id + '" class="js-abrir-detalhe">' + escapeHtml(a.nome) + '</button>' +
-            '<div class="cell-sub">' + escapeHtml(a.curso) + '</div>' +
+            '<div class="cell-sub">' + escapeHtml(a.curso) + ' &middot; ' + escapeHtml(a.turno || "Turno não informado") + '</div>' +
           '</td>' +
           '<td class="cell-mono">' + formatarData(a.dataMatricula) + '</td>' +
           '<td class="cell-mono">' + a.frequencia + '%</td>' +
@@ -286,7 +320,7 @@
           '<div class="profile-row">' +
             '<div>' +
               '<p class="profile-name">' + escapeHtml(aluno.nome) + '</p>' +
-              '<p class="profile-meta">' + escapeHtml(aluno.curso) + ' &middot; matriculado em <strong>' + formatarData(aluno.dataMatricula) + '</strong></p>' +
+              '<p class="profile-meta">' + escapeHtml(aluno.curso) + ' &middot; ' + escapeHtml(aluno.turno || "Turno não informado") + ' &middot; matriculado em <strong>' + formatarData(aluno.dataMatricula) + '</strong></p>' +
               '<p class="profile-meta">' + escapeHtml(aluno.email) + '</p>' +
             '</div>' +
           '</div>' +
@@ -329,6 +363,7 @@
     document.getElementById("modal-overlay").hidden = false;
   }
   function fecharModal(){
+    if(limparAutocompleteAtual) limparAutocompleteAtual();
     document.getElementById("modal-overlay").hidden = true;
     document.getElementById("modal-box").innerHTML = "";
   }
@@ -346,12 +381,18 @@
           '<div class="field">' +
             '<label for="f-curso">Curso</label>' +
             '<div class="autocomplete-wrap">' +
-              '<input id="f-curso" autocomplete="off" required />' +
-              '<ul id="f-curso-sugestoes" class="autocomplete-list" hidden></ul>' +
+              '<input id="f-curso" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="f-curso-sugestoes" aria-expanded="false" required />' +
+              '<ul id="f-curso-sugestoes" class="autocomplete-list" role="listbox" hidden></ul>' +
             '</div>' +
             '<span class="field-hint">Digite para buscar ou registre um curso novo.</span>' +
           '</div>' +
           '<div class="field"><label for="f-data">Data de matrícula</label><input id="f-data" type="date" value="' + hojeISO() + '" required /></div>' +
+        '</div>' +
+        '<div class="form-grid" style="margin-top:14px;">' +
+          '<div class="field"><label for="f-turno">Turno</label><select id="f-turno" required>' +
+            '<option value="">Selecione o turno</option>' +
+            TURNOS_DISPONIVEIS.map(function(turno){ return '<option value="' + escapeHtml(turno) + '">' + escapeHtml(turno) + '</option>'; }).join("") +
+          '</select></div>' +
         '</div>' +
         '<div class="form-actions">' +
           '<button type="button" class="btn btn-secondary" id="btn-cancelar-modal">Cancelar</button>' +
@@ -370,6 +411,7 @@
         email: document.getElementById("f-email").value.trim(),
         curso: document.getElementById("f-curso").value.trim(),
         dataMatricula: document.getElementById("f-data").value,
+        turno: document.getElementById("f-turno").value,
         frequencia: 100,
         media: 10,
         situacaoPagamento: "em_dia",
@@ -377,7 +419,10 @@
         status: "ativo"
       };
       state.alunos.push(novo);
-      salvarDados();
+      if(!salvarDados()){
+        state.alunos.pop();
+        return;
+      }
       renderLista();
       fecharModal();
       mostrarToast("Aluno matriculado com sucesso.");
@@ -400,12 +445,19 @@
           '<div class="field">' +
             '<label for="e-curso">Curso</label>' +
             '<div class="autocomplete-wrap">' +
-              '<input id="e-curso" autocomplete="off" value="' + escapeHtml(aluno.curso) + '" required />' +
-              '<ul id="e-curso-sugestoes" class="autocomplete-list" hidden></ul>' +
+              '<input id="e-curso" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="e-curso-sugestoes" aria-expanded="false" value="' + escapeHtml(aluno.curso) + '" required />' +
+              '<ul id="e-curso-sugestoes" class="autocomplete-list" role="listbox" hidden></ul>' +
             '</div>' +
             '<span class="field-hint">Digite para buscar ou registre um curso novo.</span>' +
           '</div>' +
           '<div class="field"><label for="e-data">Data de matrícula</label><input id="e-data" type="date" value="' + aluno.dataMatricula + '" required /></div>' +
+        '</div>' +
+        '<div class="form-grid" style="margin-top:14px;">' +
+          '<div class="field"><label for="e-turno">Turno</label><select id="e-turno" required>' +
+            '<option value="">Selecione o turno</option>' +
+            (!aluno.turno ? '<option value="Não informado" selected>Não informado</option>' : '') +
+            TURNOS_DISPONIVEIS.map(function(turno){ return '<option value="' + escapeHtml(turno) + '"' + (aluno.turno === turno ? " selected" : "") + '>' + escapeHtml(turno) + '</option>'; }).join("") +
+          '</select></div>' +
         '</div>' +
         '<div class="form-grid" style="margin-top:14px;">' +
           '<div class="field"><label for="e-freq">Frequência (%)</label><input id="e-freq" type="number" min="0" max="100" value="' + aluno.frequencia + '" required /></div>' +
@@ -435,12 +487,13 @@
       aluno.email = document.getElementById("e-email").value.trim();
       aluno.curso = document.getElementById("e-curso").value.trim();
       aluno.dataMatricula = document.getElementById("e-data").value;
+      aluno.turno = document.getElementById("e-turno").value;
       aluno.frequencia = clamp(Number(document.getElementById("e-freq").value), 0, 100);
       aluno.media = clamp(Number(document.getElementById("e-media").value), 0, 10);
       aluno.situacaoPagamento = document.getElementById("e-pagamento").value;
       aluno.diasAtraso = Number(document.getElementById("e-dias").value) || 0;
 
-      salvarDados();
+      if(!salvarDados()) return;
       renderLista();
       fecharModal();
       mostrarToast("Dados atualizados.");
@@ -488,6 +541,30 @@
 
   document.getElementById("search-input").addEventListener("input", function(e){
     state.query = e.target.value;
+    renderLista();
+  });
+
+  document.getElementById("filtro-risco").addEventListener("change", function(e){
+    state.risco = e.target.value;
+    renderLista();
+  });
+  document.getElementById("filtro-turno").addEventListener("change", function(e){
+    state.turno = e.target.value;
+    renderLista();
+  });
+  document.getElementById("filtro-curso").addEventListener("change", function(e){
+    state.curso = e.target.value;
+    renderLista();
+  });
+  document.getElementById("btn-limpar-filtros").addEventListener("click", function(){
+    state.query = "";
+    state.risco = "";
+    state.turno = "";
+    state.curso = "";
+    document.getElementById("search-input").value = "";
+    document.getElementById("filtro-risco").value = "";
+    document.getElementById("filtro-turno").value = "";
+    document.getElementById("filtro-curso").value = "";
     renderLista();
   });
 

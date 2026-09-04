@@ -187,10 +187,11 @@
     display:flex;
     gap:10px;
     margin-bottom:16px;
+    flex-wrap:wrap;
   }
-  #search-input{
+  #search-input, .toolbar select{
     flex:1;
-    max-width:340px;
+    min-width:150px;
     padding:10px 14px;
     border-radius:var(--radius-s);
     border:1px solid var(--paper-line);
@@ -198,7 +199,18 @@
     font-size:14px;
     color:var(--ink);
   }
-  #search-input:focus{ border-color:var(--accent); }
+  #search-input{ max-width:340px; }
+  .toolbar select{ max-width:190px; }
+  #search-input:focus, .toolbar select:focus{ border-color:var(--accent); }
+
+  @media (max-width:760px){
+    #search-input, .toolbar select{ max-width:none; flex-basis:calc(50% - 5px); }
+    #btn-limpar-filtros{ flex:1 1 100%; }
+  }
+
+  @media (max-width:520px){
+    #search-input, .toolbar select{ flex-basis:100%; }
+  }
 
   /* ---------- Table (ledger) ---------- */
   .table-wrap{
@@ -425,6 +437,11 @@
     font-size:20px;
   }
   .modal .modal-sub{ color:var(--ink-soft); font-size:13px; margin:0 0 20px; }
+
+  @media (max-height:560px){
+    .modal-overlay{ align-items:flex-start; overflow-y:auto; }
+    .modal{ margin:7px 0; }
+  }
 
   /* ---------- Toast ---------- */
   .toast{

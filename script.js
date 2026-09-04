@@ -1,6 +1,15 @@
 (function(){
   "use strict";
 
+  var CURSOS_DISPONIVEIS = [
+    "Administração", "Análise e Desenvolvimento de Sistemas",
+    "Arquitetura e Urbanismo", "Ciência da Computação", "Design Gráfico", "Direito",
+    "Enfermagem", "Engenharia Ambiental", "Engenharia Civil",
+    "Engenharia de Computação", "Engenharia de Produção", "Engenharia de Software",
+    "Engenharia Elétrica", "Engenharia Mecânica", "Engenharia Química", "Marketing",
+    "Pedagogia", "Psicologia", "Sistemas de Informação"
+  ];
+
   var STORAGE_KEY = "alunos-data";
   var state = { alunos: [], loaded: false, query: "" };
 
@@ -13,6 +22,81 @@
   function escapeHtml(str){
     return String(str == null ? "" : str).replace(/[&<>"']/g, function(c){
       return ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c];
+    });
+  }
+
+  function normalizarTexto(str){
+    return String(str || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+  }
+
+  function ativarAutocompleteCurso(inputId, listaId){
+    var input = document.getElementById(inputId);
+    var lista = document.getElementById(listaId);
+    var indiceAtivo = -1;
+
+    function renderizarSugestoes(){
+      var termo = normalizarTexto(input.value.trim());
+      var cursos = CURSOS_DISPONIVEIS.filter(function(curso){
+        return !termo || normalizarTexto(curso).indexOf(termo) !== -1;
+      });
+
+      if(!cursos.length){
+        lista.innerHTML = '<li class="sem-resultado">Nenhum curso encontrado — o texto digitado será mantido.</li>';
+      }else{
+        lista.innerHTML = cursos.map(function(curso){
+          return '<li data-valor="' + escapeHtml(curso) + '">' + escapeHtml(curso) + '</li>';
+        }).join("");
+      }
+
+      indiceAtivo = -1;
+      lista.hidden = false;
+    }
+
+    function fecharSugestoes(){
+      lista.hidden = true;
+      indiceAtivo = -1;
+    }
+
+    function confirmarSugestao(){
+      var sugestoes = lista.querySelectorAll("li[data-valor]");
+      if(indiceAtivo < 0 || !sugestoes[indiceAtivo]) return;
+      input.value = sugestoes[indiceAtivo].getAttribute("data-valor");
+      fecharSugestoes();
+    }
+
+    input.addEventListener("focus", function(){
+      if(!input.value.trim()) renderizarSugestoes();
+    });
+    input.addEventListener("input", renderizarSugestoes);
+    input.addEventListener("keydown", function(e){
+      var sugestoes = lista.querySelectorAll("li[data-valor]");
+      if(e.key === "ArrowDown" || e.key === "ArrowUp"){
+        if(lista.hidden || !sugestoes.length) return;
+        e.preventDefault();
+        indiceAtivo = e.key === "ArrowDown"
+          ? (indiceAtivo + 1) % sugestoes.length
+          : (indiceAtivo - 1 + sugestoes.length) % sugestoes.length;
+        Array.prototype.forEach.call(sugestoes, function(item, index){
+          item.classList.toggle("ativo", index === indiceAtivo);
+        });
+      }else if(e.key === "Enter" && !lista.hidden){
+        e.preventDefault();
+        confirmarSugestao();
+      }else if(e.key === "Escape"){
+        fecharSugestoes();
+      }
+    });
+    lista.addEventListener("click", function(e){
+      var sugestao = e.target.closest("li[data-valor]");
+      if(!sugestao) return;
+      input.value = sugestao.getAttribute("data-valor");
+      fecharSugestoes();
+    });
+    document.addEventListener("click", function(e){
+      if(e.target !== input && !lista.contains(e.target)) fecharSugestoes();
     });
   }
 
@@ -259,7 +343,14 @@
           '<div class="field"><label for="f-email">E-mail</label><input id="f-email" type="email" required /></div>' +
         '</div>' +
         '<div class="form-grid" style="margin-top:14px;">' +
-          '<div class="field"><label for="f-curso">Curso</label><input id="f-curso" required /></div>' +
+          '<div class="field">' +
+            '<label for="f-curso">Curso</label>' +
+            '<div class="autocomplete-wrap">' +
+              '<input id="f-curso" autocomplete="off" required />' +
+              '<ul id="f-curso-sugestoes" class="autocomplete-list" hidden></ul>' +
+            '</div>' +
+            '<span class="field-hint">Digite para buscar ou registre um curso novo.</span>' +
+          '</div>' +
           '<div class="field"><label for="f-data">Data de matrícula</label><input id="f-data" type="date" value="' + hojeISO() + '" required /></div>' +
         '</div>' +
         '<div class="form-actions">' +
@@ -269,6 +360,7 @@
       '</form>'
     );
 
+    ativarAutocompleteCurso("f-curso", "f-curso-sugestoes");
     document.getElementById("btn-cancelar-modal").addEventListener("click", fecharModal);
     document.getElementById("form-novo-aluno").addEventListener("submit", function(e){
       e.preventDefault();
@@ -305,7 +397,14 @@
           '<div class="field"><label for="e-email">E-mail</label><input id="e-email" type="email" value="' + escapeHtml(aluno.email) + '" required /></div>' +
         '</div>' +
         '<div class="form-grid" style="margin-top:14px;">' +
-          '<div class="field"><label for="e-curso">Curso</label><input id="e-curso" value="' + escapeHtml(aluno.curso) + '" required /></div>' +
+          '<div class="field">' +
+            '<label for="e-curso">Curso</label>' +
+            '<div class="autocomplete-wrap">' +
+              '<input id="e-curso" autocomplete="off" value="' + escapeHtml(aluno.curso) + '" required />' +
+              '<ul id="e-curso-sugestoes" class="autocomplete-list" hidden></ul>' +
+            '</div>' +
+            '<span class="field-hint">Digite para buscar ou registre um curso novo.</span>' +
+          '</div>' +
           '<div class="field"><label for="e-data">Data de matrícula</label><input id="e-data" type="date" value="' + aluno.dataMatricula + '" required /></div>' +
         '</div>' +
         '<div class="form-grid" style="margin-top:14px;">' +
@@ -328,6 +427,7 @@
       '</form>'
     );
 
+    ativarAutocompleteCurso("e-curso", "e-curso-sugestoes");
     document.getElementById("btn-cancelar-modal").addEventListener("click", fecharModal);
     document.getElementById("form-editar-aluno").addEventListener("submit", function(e){
       e.preventDefault();

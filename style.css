@@ -389,6 +389,17 @@
   }
   .field input:focus, .field select:focus{ border-color:var(--accent); }
   .field-hint{ font-size:11.5px; color:var(--ink-faint); }
+  .autocomplete-wrap{ position:relative; }
+  .autocomplete-list{
+    position:absolute; top:100%; left:0; right:0; z-index:20;
+    background:#fff; border:1px solid var(--paper-line); border-radius:var(--radius-s);
+    margin-top:4px; max-height:220px; overflow-y:auto; list-style:none; padding:4px;
+    box-shadow:var(--shadow-card);
+  }
+  .autocomplete-list[hidden]{ display:none; }
+  .autocomplete-list li{ padding:8px 10px; border-radius:var(--radius-s); font-size:14px; cursor:pointer; }
+  .autocomplete-list li:hover, .autocomplete-list li.ativo{ background:var(--accent-soft); }
+  .autocomplete-list li.sem-resultado{ color:var(--ink-soft); cursor:default; }
   .form-actions{
     display:flex; justify-content:flex-end; gap:10px; margin-top:22px;
   }
@@ -404,7 +415,7 @@
     background:var(--paper-raised);
     border-radius:var(--radius-m);
     max-width:560px; width:100%;
-    max-height:88vh; overflow-y:auto;
+    max-height:calc(100vh - 14px); overflow:visible;
     padding:26px;
     box-shadow:0 20px 60px rgba(0,0,0,0.25);
   }

@@ -14,6 +14,7 @@
   var STORAGE_KEY = "alunos-data";
   var state = { alunos: [], loaded: false, query: "", risco: "", turno: "", curso: "" };
   var limparAutocompleteAtual = null;
+  var elementoComFocoAntesDoModal = null;
 
   var alunosService = {
     listar: function(){
@@ -193,7 +194,8 @@
     try{
       var alunosSalvos = alunosService.listar();
       if(alunosSalvos){
-        state.alunos = alunosSalvos;
+        state.alunos = atualizarExemplosConhecidos(alunosSalvos);
+        if(state.alunos !== alunosSalvos) salvarDados();
         return;
       }
     }catch(err){
@@ -202,6 +204,24 @@
     // primeira vez usando a página (ou dado corrompido/indisponível): começa com exemplos
     state.alunos = gerarAlunosExemplo();
     salvarDados();
+  }
+
+  function atualizarExemplosConhecidos(alunos){
+    var nomesExemplo = {
+      "Ana Beatriz Lima": true,
+      "Carlos Eduardo Souza": true,
+      "Fernanda Alves Costa": true,
+      "João Pedro Martins": true,
+      "Mariana Ribeiro Santos": true,
+      "Cauã Victor Camargo": true
+    };
+    var conjuntoDeExemplos = alunos.length > 0 && alunos.every(function(aluno){
+      return nomesExemplo[aluno.nome];
+    });
+    var exemplosDesatualizados = alunos.some(function(aluno){
+      return !aluno.turno || aluno.turno === "Não informado";
+    });
+    return conjuntoDeExemplos && exemplosDesatualizados ? gerarAlunosExemplo() : alunos;
   }
 
   function salvarDados(){
@@ -216,11 +236,10 @@
 
   function gerarAlunosExemplo(){
     return [
-      { id: gerarId(), nome:"Ana Beatriz Lima", email:"ana.lima@escola.com", curso:"Engenharia de Software", dataMatricula:"2024-02-10", frequencia:95, media:8.4, situacaoPagamento:"em_dia", diasAtraso:0, status:"ativo" },
-      { id: gerarId(), nome:"Carlos Eduardo Souza", email:"carlos.souza@escola.com", curso:"Administração", dataMatricula:"2023-08-15", frequencia:68, media:5.5, situacaoPagamento:"atrasado", diasAtraso:20, status:"ativo" },
-      { id: gerarId(), nome:"Fernanda Alves Costa", email:"fernanda.costa@escola.com", curso:"Design Gráfico", dataMatricula:"2024-01-22", frequencia:52, media:4.2, situacaoPagamento:"atrasado", diasAtraso:45, status:"ativo" },
-      { id: gerarId(), nome:"João Pedro Martins", email:"joao.martins@escola.com", curso:"Ciência da Computação", dataMatricula:"2022-03-01", frequencia:88, media:7.0, situacaoPagamento:"em_dia", diasAtraso:0, status:"ativo" },
-      { id: gerarId(), nome:"Mariana Ribeiro Santos", email:"mariana.santos@escola.com", curso:"Pedagogia", dataMatricula:"2024-05-06", frequencia:74, media:6.0, situacaoPagamento:"atrasado", diasAtraso:10, status:"ativo" }
+      { id: gerarId(), nome:"Fernanda Alves Costa", email:"fernanda.costa@escola.com", curso:"Design Gráfico", turno:"Tarde", dataMatricula:"2024-01-22", frequencia:52, media:4.2, situacaoPagamento:"atrasado", diasAtraso:45, status:"ativo" },
+      { id: gerarId(), nome:"João Pedro Martins", email:"joao.martins@escola.com", curso:"Ciência da Computação", turno:"Noite", dataMatricula:"2022-03-01", frequencia:68, media:5.5, situacaoPagamento:"atrasado", diasAtraso:20, status:"ativo" },
+      { id: gerarId(), nome:"Mariana Ribeiro Santos", email:"mariana.santos@escola.com", curso:"Pedagogia", turno:"Integral", dataMatricula:"2024-05-06", frequencia:88, media:7.8, situacaoPagamento:"em_dia", diasAtraso:0, status:"ativo" },
+      { id: gerarId(), nome:"Cauã Victor Camargo", email:"caua.camargo@escola.com", curso:"Administração", turno:"Manhã", dataMatricula:hojeISO(), frequencia:100, media:10.0, situacaoPagamento:"em_dia", diasAtraso:0, status:"ativo" }
     ];
   }
 
@@ -251,6 +270,17 @@
       '<div class="stat-card high"><div class="stat-value">' + counts.high + '</div><div class="stat-label">Risco alto</div></div>';
   }
 
+  function preencherFiltros(){
+    var filtroTurno = document.getElementById("filtro-turno");
+    var filtroCurso = document.getElementById("filtro-curso");
+    filtroTurno.innerHTML = '<option value="">Todos</option>' +
+      '<option value="Não informado">Não informado</option>' +
+      TURNOS_DISPONIVEIS.map(function(turno){ return '<option value="' + escapeHtml(turno) + '">' + escapeHtml(turno) + '</option>'; }).join("");
+    filtroCurso.innerHTML = '<option value="">Todos</option>' + CURSOS_DISPONIVEIS.map(function(curso){
+      return '<option value="' + escapeHtml(curso) + '">' + escapeHtml(curso) + '</option>';
+    }).join("");
+  }
+
   function renderLista(){
     renderStats();
 
@@ -277,14 +307,14 @@
       var risco = calcularRisco(a);
       return (
         '<tr>' +
-          '<td class="cell-name">' +
+          '<td class="cell-name" data-label="Aluno">' +
             '<button data-id="' + a.id + '" class="js-abrir-detalhe">' + escapeHtml(a.nome) + '</button>' +
             '<div class="cell-sub">' + escapeHtml(a.curso) + ' &middot; ' + escapeHtml(a.turno || "Turno não informado") + '</div>' +
           '</td>' +
-          '<td class="cell-mono">' + formatarData(a.dataMatricula) + '</td>' +
-          '<td class="cell-mono">' + a.frequencia + '%</td>' +
-          '<td><span class="pill ' + risco.nivel + '">' + NIVEL_LABEL[risco.nivel] + '</span></td>' +
-          '<td>' +
+          '<td class="cell-mono" data-label="Matriculado desde">' + formatarData(a.dataMatricula) + '</td>' +
+          '<td class="cell-mono" data-label="Frequência">' + a.frequencia + '%</td>' +
+          '<td data-label="Risco de evasão"><span class="pill ' + risco.nivel + '">' + NIVEL_LABEL[risco.nivel] + '</span></td>' +
+          '<td data-label="Ações">' +
             '<div class="cell-actions">' +
               '<button class="btn-icon js-editar" data-id="' + a.id + '" title="Editar" aria-label="Editar aluno">✎</button>' +
               '<button class="btn-icon js-excluir" data-id="' + a.id + '" title="Excluir" aria-label="Excluir aluno">🗑</button>' +
@@ -359,18 +389,25 @@
   /* ---------------- modais ---------------- */
 
   function abrirModal(html){
+    elementoComFocoAntesDoModal = document.activeElement;
     document.getElementById("modal-box").innerHTML = html;
     document.getElementById("modal-overlay").hidden = false;
+    var primeiroControle = document.querySelector("#modal-box input, #modal-box select, #modal-box button");
+    if(primeiroControle) primeiroControle.focus();
   }
   function fecharModal(){
     if(limparAutocompleteAtual) limparAutocompleteAtual();
     document.getElementById("modal-overlay").hidden = true;
     document.getElementById("modal-box").innerHTML = "";
+    if(elementoComFocoAntesDoModal && document.contains(elementoComFocoAntesDoModal)){
+      elementoComFocoAntesDoModal.focus();
+    }
+    elementoComFocoAntesDoModal = null;
   }
 
   function abrirModalNovoAluno(){
     abrirModal(
-      '<h2>Matricular aluno</h2>' +
+      '<h2 id="modal-title">Matricular aluno</h2>' +
       '<p class="modal-sub">Dados cadastrais do novo aluno. Os indicadores de frequência e desempenho podem ser atualizados depois, na ficha do aluno.</p>' +
       '<form id="form-novo-aluno">' +
         '<div class="form-grid single">' +
@@ -434,7 +471,7 @@
     if(!aluno) return;
 
     abrirModal(
-      '<h2>Editar aluno</h2>' +
+      '<h2 id="modal-title">Editar aluno</h2>' +
       '<p class="modal-sub">Atualize os dados cadastrais e os indicadores usados na estimativa de risco.</p>' +
       '<form id="form-editar-aluno">' +
         '<div class="form-grid single">' +
@@ -508,7 +545,7 @@
     if(!aluno) return;
 
     abrirModal(
-      '<h2>Excluir cadastro</h2>' +
+      '<h2 id="modal-title">Excluir cadastro</h2>' +
       '<p class="modal-sub">Tem certeza de que deseja excluir o registro de <strong>' + escapeHtml(aluno.nome) + '</strong>? Essa ação não pode ser desfeita.</p>' +
       '<div class="form-actions">' +
         '<button type="button" class="btn btn-secondary" id="btn-cancelar-modal">Cancelar</button>' +
@@ -518,8 +555,12 @@
 
     document.getElementById("btn-cancelar-modal").addEventListener("click", fecharModal);
     document.getElementById("btn-confirmar-excluir").addEventListener("click", function(){
+      var alunosAnteriores = state.alunos;
       state.alunos = state.alunos.filter(function(a){ return a.id !== id; });
-      salvarDados();
+      if(!salvarDados()){
+        state.alunos = alunosAnteriores;
+        return;
+      }
       fecharModal();
       mostrarToast("Aluno excluído.");
       document.getElementById("view-detail").hidden = true;
@@ -589,6 +630,7 @@
   /* ---------------- inicialização ---------------- */
 
   carregarDados();
+  preencherFiltros();
   state.loaded = true;
   renderLista();
 

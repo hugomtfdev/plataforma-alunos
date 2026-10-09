@@ -23,7 +23,7 @@
   var TURNOS_DISPONIVEIS = ["Diurno", "Noturno"];
 
   var STORAGE_KEY = "alunos-data";
-  var state = { alunos: [], loaded: false, query: "", risco: "", turno: "", curso: "" };
+  var state = { alunos: [], loaded: false, query: "", risco: "", turno: "", curso: "", ordenacao: { campo: null, direcao: "asc" } };
   var elementoComFocoAntesDoModal = null;
 
   var alunosService = {
@@ -332,6 +332,56 @@
     });
   }
 
+  function alunosOrdenados(lista){
+    var campo = state.ordenacao.campo;
+    if(!campo) return lista;
+
+    var direcao = state.ordenacao.direcao === "asc" ? 1 : -1;
+    var ordemRisco = { low: 1, mid: 2, high: 3 };
+    return lista.map(function(aluno, indice){ return { aluno: aluno, indice: indice }; }).sort(function(a, b){
+      var valorA;
+      var valorB;
+      if(campo === "nome"){
+        valorA = normalizarTexto(a.aluno.nome);
+        valorB = normalizarTexto(b.aluno.nome);
+      }else if(campo === "dataMatricula"){
+        valorA = a.aluno.dataMatricula || "";
+        valorB = b.aluno.dataMatricula || "";
+      }else if(campo === "frequencia"){
+        valorA = a.aluno.frequencia == null ? null : Number(a.aluno.frequencia);
+        valorB = b.aluno.frequencia == null ? null : Number(b.aluno.frequencia);
+      }else{
+        var previsaoA = obterPrevisao(a.aluno);
+        var previsaoB = obterPrevisao(b.aluno);
+        valorA = previsaoA && previsaoA.nivel ? ordemRisco[previsaoA.nivel] : null;
+        valorB = previsaoB && previsaoB.nivel ? ordemRisco[previsaoB.nivel] : null;
+      }
+
+      if(valorA == null || valorA === "") return valorB == null || valorB === "" ? a.indice - b.indice : 1;
+      if(valorB == null || valorB === "") return -1;
+      if(valorA < valorB) return -1 * direcao;
+      if(valorA > valorB) return 1 * direcao;
+      return a.indice - b.indice;
+    }).map(function(item){ return item.aluno; });
+  }
+
+  function direcaoInicialOrdenacao(campo){
+    return campo === "nome" ? "asc" : "desc";
+  }
+
+  function atualizarIndicadoresOrdenacao(){
+    document.querySelectorAll(".sort-button").forEach(function(botao){
+      var th = botao.closest("th");
+      var campo = botao.getAttribute("data-sort");
+      var ativo = campo === state.ordenacao.campo;
+      var direcao = ativo ? state.ordenacao.direcao : direcaoInicialOrdenacao(campo);
+      var indicador = botao.querySelector(".sort-indicator");
+      th.setAttribute("aria-sort", ativo ? (state.ordenacao.direcao === "asc" ? "ascending" : "descending") : "none");
+      indicador.textContent = ativo ? (state.ordenacao.direcao === "asc" ? "↑" : "↓") : "↕";
+      botao.setAttribute("aria-label", "Ordenar por " + botao.firstChild.textContent.trim() + (direcao === "asc" ? ", ordem crescente" : ", ordem decrescente"));
+    });
+  }
+
   function renderStats(){
     var ativos = state.alunos.filter(function(a){ return a.status === "ativo"; });
     var counts = { low:0, mid:0, high:0, pendente:0, previstas:0 };
@@ -372,7 +422,8 @@
 
     var tbody = document.getElementById("students-tbody");
     var emptyState = document.getElementById("empty-state");
-    var lista = alunosFiltrados();
+    var lista = alunosOrdenados(alunosFiltrados());
+    atualizarIndicadoresOrdenacao();
     var totalAtivos = state.alunos.filter(function(a){ return a.status === "ativo"; }).length;
 
     if(totalAtivos === 0){
@@ -649,6 +700,17 @@
     document.getElementById("filtro-turno").value = "";
     document.getElementById("filtro-curso").value = "";
     renderLista();
+  });
+
+  document.querySelectorAll(".sort-button").forEach(function(botao){
+    botao.addEventListener("click", function(){
+      var campo = botao.getAttribute("data-sort");
+      state.ordenacao.direcao = state.ordenacao.campo === campo
+        ? (state.ordenacao.direcao === "asc" ? "desc" : "asc")
+        : direcaoInicialOrdenacao(campo);
+      state.ordenacao.campo = campo;
+      renderLista();
+    });
   });
 
   document.getElementById("modal-overlay").addEventListener("click", function(e){

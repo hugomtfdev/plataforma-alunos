@@ -256,6 +256,21 @@
     padding:14px 18px;
     border-bottom:2px solid var(--paper-line);
   }
+  .sort-button{
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    padding:0;
+    border:0;
+    background:transparent;
+    color:inherit;
+    font:inherit;
+    text-align:left;
+    text-transform:inherit;
+    letter-spacing:inherit;
+  }
+  .sort-button:hover{ color:var(--accent-dark); }
+  .sort-indicator{ color:var(--accent); font-size:14px; }
   .ledger-table tbody tr{
     border-bottom:1px solid var(--paper-line);
     transition:background 0.14s ease, box-shadow 0.14s ease;

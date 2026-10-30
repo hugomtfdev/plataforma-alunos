@@ -512,6 +512,16 @@
   .academic-summary h3{ margin:0 0 12px; font-family:var(--font-display); font-size:14px; }
   .academic-summary p{ display:flex; justify-content:space-between; gap:16px; margin:8px 0 0; color:var(--ink-soft); font-size:13px; }
   .academic-summary strong{ color:var(--ink); text-align:right; }
+  .prediction-percent{ font-family:var(--font-display); font-size:40px !important; font-weight:700; color:var(--ink) !important; margin:14px 0 0 !important; line-height:1.1 !important; }
+  .prediction-error strong{ color:var(--danger); }
+  .prediction-loading strong{ color:var(--ink-soft); }
+  .missing-list{ margin:10px 0 0; padding-left:18px; color:var(--ink-soft); font-size:12.5px; line-height:1.55; }
+  .api-status{ margin:0 0 16px; padding:10px 14px; border-radius:var(--radius-s); background:var(--paper-muted); color:var(--ink-soft); font-size:13px; }
+  .api-status.erro{ background:var(--risk-high-bg); color:var(--risk-high); }
+  .predict-group{ margin-top:16px; }
+  .predict-group h4{ margin:0 0 10px; font-size:12px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-soft); }
+  .example-actions{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0 0 6px; font-size:12px; color:var(--ink-soft); }
+  .example-actions .btn{ padding:6px 12px; font-size:12px; }
 
   @media (max-height:560px){
     .modal-overlay{ align-items:flex-start; overflow-y:auto; }

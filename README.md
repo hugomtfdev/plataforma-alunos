@@ -2,7 +2,7 @@
 
 MVP de uma plataforma de secretaria escolar para cadastro e acompanhamento de alunos. O projeto está sendo preparado para, futuramente, consumir uma API de predição de evasão escolar baseada em Machine Learning.
 
-> **Estado atual:** a interface funciona localmente no navegador e persiste os cadastros no `localStorage`. A integração com o backend e com o modelo de Machine Learning ainda não está implementada. Os dados e indicadores de demonstração não são previsões reais.
+> **Estado atual:** a interface funciona localmente no navegador, persiste os cadastros no `localStorage` e obtém a predição de evasão da API FastAPI (Regressão Logística). Sem a API no ar, o risco aparece como **Predição indisponível**; nenhum risco é calculado localmente. Os alunos de demonstração usam linhas reais do dataset, mas os nomes e e-mails são fictícios.
 
 ## Funcionalidades atuais
 
@@ -17,19 +17,26 @@ MVP de uma plataforma de secretaria escolar para cadastro e acompanhamento de al
 
 ## Como executar
 
-O projeto não usa atualmente npm, bundler ou processo de compilação.
+O front não usa npm, bundler ou compilação.
 
-1. Abra `gestao-alunos.html` diretamente no navegador; ou
-2. No VS Code, abra a pasta do projeto e inicie a configuração **Abrir Gestão de Alunos** disponível em `.vscode/launch.json` com F5.
+1. **API** (PowerShell, na pasta `student_dropout_fastapi`; use o Python do seu venv):
 
-A fonte tipográfica é carregada do Google Fonts. Sem conexão à internet, o navegador utiliza as fontes alternativas definidas no CSS.
+   ```powershell
+   python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+   ```
+
+   Confirme em `http://127.0.0.1:8000/health` (`status: healthy`). A API libera CORS, então o front não precisa de servidor.
+2. **Front**: abra `gestao-alunos.html` no navegador (ou use F5 no VS Code, `.vscode/launch.json`).
+
+Se a API estiver em outra máquina, altere `API_BASE_URL` no topo de `script.js` (ex.: `http://192.168.0.10:8000`) e suba a API com `--host 0.0.0.0`.
 
 ## Estrutura do projeto
 
 ```text
 /
 ├── gestao-alunos.html       # Estrutura da página e pontos de montagem
-├── script.js                # Estado, cadastro, filtros, renderização e persistência local
+├── catalogos.js             # Somente dados: catálogos código UCI/rótulo e perfis de exemplo
+├── script.js                # Estado, cadastro, filtros, renderização, persistência e cliente da API
 ├── style.css                # Layout, componentes e regras responsivas
 ├── README.md                # Documentação do MVP
 └── .vscode/
@@ -40,15 +47,21 @@ A fonte tipográfica é carregada do Google Fonts. Sem conexão à internet, o n
 
 ### Matrícula
 
-O cadastro registra nome, e-mail, curso, data e idade no ingresso, período do curso, ordem da candidatura, estado civil e informações financeiras disponíveis. O modo de ingresso e a escolaridade anterior são apresentados como códigos provisórios, pois os respectivos codebooks precisam ser confirmados com a equipe responsável pelo modelo.
+O cadastro é leve: nome, e-mail, curso (17 cursos do catálogo, rótulo + código UCI) e data de matrícula.
+
+### Dados para predição
+
+Em **Editar dados → Dados para predição** ficam os demais campos exigidos pelo modelo, agrupados em Perfil, Família, Financeiro, 1º semestre, 2º semestre e Macroeconômicos. Campos categóricos são `select` (rótulo em português; o valor guardado é o código UCI). Os botões **Baixo / Médio / Alto risco** carregam perfis reais do dataset para demonstração.
 
 ### Acompanhamento
 
-Frequência, média e quantidade de disciplinas reprovadas são mantidas na edição do aluno, não como dados presumidos na matrícula. Esses indicadores são editáveis para demonstrar como o acompanhamento pode evoluir ao longo do curso.
+Frequência, média (0–10) e disciplinas reprovadas são informativas e **não são enviadas ao modelo**, que usa notas por semestre na escala 0–20.
 
 ### Previsão
 
-A interface tem espaço para exibir o resultado da API: nível, probabilidade, classificação binária e versão do modelo. Enquanto não houver integração, os alunos aparecem como **Aguardando API**. Nenhum risco é calculado localmente pela plataforma.
+- **Ficha individual:** botão *Prever risco* (`POST /predict`). Estados: carregando, *Predição indisponível* (erro) e sucesso (probabilidade em %, `risk_level` da API e a legenda do modelo). Se faltar qualquer um dos 34 campos, o botão fica bloqueado e a ficha lista o que falta (*Dados incompletos*).
+- **Lista e contadores:** uma chamada `POST /predict/batch` para os alunos com dados completos, com cache em memória (id + hash dos dados). Os demais aparecem como *Sem predição*.
+- Nunca é enviado payload incompleto nem valor padrão: a API aceitaria (HTTP 200 com predição calculada só com padrões), o que geraria um risco falso.
 
 ## Dados de demonstração e armazenamento
 
@@ -64,54 +77,27 @@ Como limpar os dados locais durante o desenvolvimento:
 
 Essa ação remove todos os cadastros mantidos por esta cópia da plataforma no navegador atual.
 
-## Integração planejada com a API
+## Integração com a API
 
-O backend fornecido documenta o endpoint:
+Endpoints usados: `GET /health` (verificação manual), `POST /predict` e `POST /predict/batch` (`{"students": [...]}`). Não há autenticação. Resposta usada: `dropout_probability` (0–1) e `risk_level` (`Baixo Risco`, `Médio Risco`, `Alto Risco de Evasão`), convertidos para `{score, nivel: low|mid|high}`.
 
-```http
-POST /api/v1/predictions
-Authorization: Bearer <API_TOKEN>
-Content-Type: application/json
-```
+### Conversão dos códigos categóricos (importante)
 
-Exemplo documentado de entrada:
-
-```json
-{
-  "studentId": "ALUNO-123",
-  "features": {
-    "attendanceRate": 0.72,
-    "averageGrade": 5.8,
-    "failedSubjects": 3,
-    "age": 16
-  }
-}
-```
-
-A resposta documentada contém `studentId`, `dropoutProbability`, `dropoutPrediction`, `riskLevel` (`HIGH`, `MEDIUM` ou `LOW`) e `modelVersion`. A interface já reconhece esses nomes quando um objeto de previsão é associado ao aluno, mas ainda não faz a requisição HTTP.
-
-O exemplo de `features` do README do backend é provisório e não foi confirmado como contrato final do modelo do notebook. Antes da integração, devem ser definidos os nomes, tipos, unidades, obrigatoriedade e disponibilidade temporal das variáveis. As colunas usadas no treinamento precisam corresponder exatamente às que a API recebe.
-
-### Segurança da integração
-
-O endpoint documentado exige um API Token. Não inclua esse token no `script.js`, no HTML, no `localStorage` ou em qualquer recurso entregue ao navegador. O token pode ser extraído por usuários da página. A estratégia de autenticação e encaminhamento da chamada precisa ser definida com quem mantém o backend, mantendo credenciais no lado servidor. Se frontend e backend forem hospedados em origens diferentes, a configuração de CORS também deverá ser alinhada.
+O manual da API manda enviar os códigos originais da UCI, mas o modelo foi treinado com o CSV em que as colunas categóricas foram reindexadas (curso 1–17, modo de candidatura 1–18, escolaridade anterior 1–17, nacionalidade 1–21, escolaridade da mãe 1–29 e do pai 1–34, ocupação da mãe 1–32 e do pai 1–46). O front guarda o código UCI e `converterCodigoUciParaIndice()` (`script.js`) envia a **posição (base 1) do código no catálogo** (`catalogos.js`, ordem da seção 13 do manual). Validado: payload gerado igual à linha do CSV e mesma probabilidade na API (3 linhas, ver resultados da verificação). Se a API for retreinada com outro CSV, revise essa conversão.
 
 ## Limitações conhecidas
 
 - Não há login ou controle de acesso nesta interface.
 - Os cadastros existem somente no `localStorage` do navegador.
-- Não há cliente HTTP, URL de API configurada, estado de carregamento de requisição nem tratamento de erros do serviço remoto.
-- A tela de previsão mostra pendência até que um resultado real seja fornecido pela integração.
-- O contrato de entrada do modelo e os codebooks de algumas categorias ainda precisam de confirmação.
-- O modelo do notebook utiliza indicadores acadêmicos que não estão disponíveis no momento inicial da matrícula; previsões no ingresso podem exigir um modelo treinado especificamente para os dados disponíveis nessa etapa.
-- O projeto não possui testes automatizados configurados. As verificações atuais são manuais no navegador e no VS Code.
+- A conversão UCI → índice do modelo é uma hipótese validada em linhas do CSV, não uma garantia documentada pela API.
+- O modelo usa indicadores do 1º e 2º semestre: não serve para prever no momento da matrícula.
+- Registros antigos do `localStorage` são migrados (curso vira código UCI); modo de ingresso e escolaridade anterior "provisórios" são descartados e precisam ser preenchidos de novo.
+- A probabilidade é uma estimativa estatística (acurácia de teste 86,67%), não certeza.
+- Não há testes automatizados no repositório; a verificação foi feita com scripts externos (API real + Chrome headless).
 
 ## Próximos passos sugeridos
 
-1. Confirmar com a equipe do backend o contrato final de entrada, resposta, autenticação, URL e CORS.
-2. Confirmar os codebooks de cursos, modo de ingresso e escolaridade anterior.
-3. Decidir como os dados de alunos serão persistidos e protegidos fora do navegador.
-4. Implementar a integração sem expor tokens no frontend.
-5. Definir quais indicadores existem na matrícula e quais só estarão disponíveis depois dos semestres letivos.
-6. Criar testes para cadastro, edição, persistência, resposta da API e estados de erro/carregamento.
-
+1. Confirmar com a equipe do modelo a regra de reindexação dos códigos categóricos.
+2. Definir a origem dos dados dos semestres (notas, disciplinas) e dos indicadores macroeconômicos na plataforma final.
+3. Decidir como os dados serão persistidos e protegidos fora do navegador.
+4. Criar testes automatizados para cadastro, edição, payload e estados de erro.

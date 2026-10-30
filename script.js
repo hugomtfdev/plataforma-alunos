@@ -1,29 +1,88 @@
 (function(){
   "use strict";
 
-  var CURSOS_DISPONIVEIS = [
-    { codigo: 1, nome: "Tecnologias de Produção de Biocombustíveis" },
-    { codigo: 2, nome: "Design de Animação e Multimídia" },
-    { codigo: 3, nome: "Serviço Social (Pós-laboral / Noturno)" },
-    { codigo: 4, nome: "Agronomia" },
-    { codigo: 5, nome: "Design de Comunicação" },
-    { codigo: 6, nome: "Enfermagem Veterinária" },
-    { codigo: 7, nome: "Engenharia Informática" },
-    { codigo: 8, nome: "Equinicultura" },
-    { codigo: 9, nome: "Gestão" },
-    { codigo: 10, nome: "Serviço Social" },
-    { codigo: 11, nome: "Turismo" },
-    { codigo: 12, nome: "Enfermagem" },
-    { codigo: 13, nome: "Higiene Oral" },
-    { codigo: 14, nome: "Gestão de Publicidade e Marketing" },
-    { codigo: 15, nome: "Jornalismo e Comunicação" },
-    { codigo: 16, nome: "Educação Básica" },
-    { codigo: 17, nome: "Gestão (Pós-laboral / Noturno)" }
-  ];
+  /* ---------------- configuração da API de predição ---------------- */
+
+  // Endereço da API FastAPI. Se a API rodar em outra máquina, troque aqui
+  // (ex.: "http://192.168.0.10:8000") e inicie a API com --host 0.0.0.0.
+  var API_BASE_URL = "http://127.0.0.1:8000";
+  var API_TIMEOUT_MS = 20000;
+  var VERSAO_DADOS = 4;
+  var LEGENDA_MODELO = "Predição do modelo (Regressão Logística, acurácia 86,67%) — estimativa estatística, não certeza.";
+
+  var CURSOS_DISPONIVEIS = CATALOGOS.course.map(function(curso){
+    return { codigo: curso.codigo, nome: curso.rotulo };
+  });
   var TURNOS_DISPONIVEIS = ["Diurno", "Noturno"];
 
+  /* ---------------- esquema único dos 34 campos do modelo ---------------- */
+
+  // Cada item descreve um campo: chave (nome snake_case da API), rotulo, tipo
+  // ("catalogo" = código UCI convertido no envio; "opcao" = valor direto de lista fixa;
+  // "inteiro"; "decimal"), grupo, min/max e opcoes. O formulário, a validação e o payload
+  // são todos gerados a partir desta lista. O campo "course" fica no cadastro
+  // (aluno.cursoCodigo); os demais ficam em aluno.dadosPredicao[chave].
+  var GRUPOS_PREDICAO = ["Perfil", "Família", "Financeiro", "1º semestre", "2º semestre", "Macroeconômicos"];
+
+  function definirCampo(chave, rotulo, tipo, grupo, extra){
+    var campo = { chave: chave, rotulo: rotulo, tipo: tipo, grupo: grupo, min: null, max: null, opcoes: null, cadastro: false };
+    Object.keys(extra || {}).forEach(function(k){ campo[k] = extra[k]; });
+    if(tipo === "catalogo" && !campo.opcoes) campo.opcoes = CATALOGOS[chave];
+    if(tipo === "inteiro" && campo.min == null){ campo.min = 0; campo.max = 60; }
+    return campo;
+  }
+
+  var CAMPOS_PREDICAO = [
+    definirCampo("marital_status", "Estado civil", "opcao", "Perfil", { opcoes: OPCOES_SIMPLES.marital_status }),
+    definirCampo("application_mode", "Modo de candidatura", "catalogo", "Perfil"),
+    definirCampo("application_order", "Ordem da candidatura (0 = 1ª escolha … 9)", "inteiro", "Perfil", { min: 0, max: 9 }),
+    definirCampo("course", "Curso", "catalogo", "Perfil", { cadastro: true }),
+    definirCampo("daytime_evening_attendance", "Período do curso", "opcao", "Perfil", { opcoes: OPCOES_SIMPLES.turno }),
+    definirCampo("previous_qualification", "Escolaridade anterior", "catalogo", "Perfil"),
+    definirCampo("nationality", "Nacionalidade", "catalogo", "Perfil"),
+    definirCampo("age_at_enrollment", "Idade na matrícula", "inteiro", "Perfil", { min: 16, max: 100 }),
+    definirCampo("gender", "Gênero", "opcao", "Perfil", { opcoes: OPCOES_SIMPLES.genero }),
+    definirCampo("international", "Estudante internacional", "opcao", "Perfil", { opcoes: OPCOES_SIMPLES.sim_nao }),
+
+    definirCampo("mothers_qualification", "Escolaridade da mãe", "catalogo", "Família"),
+    definirCampo("fathers_qualification", "Escolaridade do pai", "catalogo", "Família"),
+    definirCampo("mothers_occupation", "Ocupação da mãe", "catalogo", "Família"),
+    definirCampo("fathers_occupation", "Ocupação do pai", "catalogo", "Família"),
+    definirCampo("displaced", "Deslocado da residência de origem", "opcao", "Família", { opcoes: OPCOES_SIMPLES.sim_nao }),
+    definirCampo("educational_special_needs", "Necessidades educacionais especiais", "opcao", "Família", { opcoes: OPCOES_SIMPLES.sim_nao }),
+
+    definirCampo("debtor", "Possui dívida", "opcao", "Financeiro", { opcoes: OPCOES_SIMPLES.sim_nao }),
+    definirCampo("tuition_fees_up_to_date", "Mensalidades em dia", "opcao", "Financeiro", { opcoes: OPCOES_SIMPLES.sim_nao }),
+    definirCampo("scholarship_holder", "Bolsista", "opcao", "Financeiro", { opcoes: OPCOES_SIMPLES.sim_nao })
+  ];
+
+  ["1st", "2nd"].forEach(function(sem){
+    var grupo = sem === "1st" ? "1º semestre" : "2º semestre";
+    var prefixo = "curricular_units_" + sem + "_sem_";
+    CAMPOS_PREDICAO.push(
+      definirCampo(prefixo + "credited", "Disciplinas creditadas", "inteiro", grupo),
+      definirCampo(prefixo + "enrolled", "Disciplinas matriculadas", "inteiro", grupo),
+      definirCampo(prefixo + "evaluations", "Avaliações realizadas", "inteiro", grupo),
+      definirCampo(prefixo + "approved", "Disciplinas aprovadas", "inteiro", grupo),
+      definirCampo(prefixo + "grade", "Nota média ponderada (0–20)", "decimal", grupo, { min: 0, max: 20 }),
+      definirCampo(prefixo + "without_evaluations", "Disciplinas sem avaliação", "inteiro", grupo)
+    );
+  });
+
+  CAMPOS_PREDICAO.push(
+    definirCampo("unemployment_rate", "Taxa de desemprego (%)", "decimal", "Macroeconômicos", { min: 0, max: 30 }),
+    definirCampo("inflation_rate", "Taxa de inflação (%)", "decimal", "Macroeconômicos", { min: -5, max: 15 }),
+    definirCampo("gdp", "Variação do PIB (%)", "decimal", "Macroeconômicos", { min: -15, max: 15 })
+  );
+
   var STORAGE_KEY = "alunos-data";
-  var state = { alunos: [], loaded: false, query: "", risco: "", turno: "", curso: "", ordenacao: { campo: null, direcao: "asc" } };
+  var state = {
+    alunos: [], loaded: false, query: "", risco: "", turno: "", curso: "", ordenacao: { campo: null, direcao: "asc" },
+    predicoes: {},
+    lote: { status: "ocioso", erro: null, seq: 0 },
+    detalhe: null
+  };
+  var sequenciaDetalhe = 0;
   var elementoComFocoAntesDoModal = null;
 
   var alunosService = {
@@ -74,78 +133,33 @@
       opcoes += '<option value="legacy" selected>' + escapeHtml(nomeLegado) + ' (cadastro existente)</option>';
     }
     return opcoes + CURSOS_DISPONIVEIS.map(function(curso){
-      return '<option value="' + curso.codigo + '"' + (curso.codigo === selecionado ? ' selected' : '') + '>' + escapeHtml(curso.nome) + '</option>';
+      return '<option value="' + curso.codigo + '"' + (curso.codigo === selecionado ? ' selected' : '') + '>' + escapeHtml(curso.nome) + ' · cód. ' + curso.codigo + '</option>';
     }).join("");
-  }
-
-  var ESTADOS_CIVIS = [
-    { codigo: 1, nome: "Solteiro(a)" },
-    { codigo: 2, nome: "Casado(a)" },
-    { codigo: 3, nome: "Viúvo(a)" },
-    { codigo: 4, nome: "Divorciado(a)" },
-    { codigo: 5, nome: "União estável" },
-    { codigo: 6, nome: "Separado(a) judicialmente" }
-  ];
-
-  function opcoesEstadoCivil(codigoSelecionado){
-    return '<option value="">Não informado</option>' + ESTADOS_CIVIS.map(function(item){
-      return '<option value="' + item.codigo + '"' + (Number(codigoSelecionado) === item.codigo ? ' selected' : '') + '>' + item.nome + '</option>';
-    }).join("");
-  }
-
-  function opcoesSimNao(valor){
-    var selecionado = valor === true ? "1" : (valor === false ? "0" : "");
-    return '<option value="">Não informado</option>' +
-      '<option value="1"' + (selecionado === "1" ? ' selected' : '') + '>Sim</option>' +
-      '<option value="0"' + (selecionado === "0" ? ' selected' : '') + '>Não</option>';
   }
 
   function renderCamposIngresso(prefixo, aluno){
     aluno = aluno || {};
     var cursoSelecionado = Number(aluno.cursoCodigo) || "";
-    var turnoSelecionado = aluno.turnoCodigo == null ? "" : String(aluno.turnoCodigo);
     var cursoOptions = opcoesCurso(cursoSelecionado, aluno.curso);
-    var turnoOptions = '<option value="">Selecione o período</option>' +
-      '<option value="1"' + (turnoSelecionado === "1" ? ' selected' : '') + '>Diurno</option>' +
-      '<option value="0"' + (turnoSelecionado === "0" ? ' selected' : '') + '>Noturno</option>';
-
-    if(aluno.turno && turnoSelecionado === ""){
-      turnoOptions += '<option value="legacy" selected>' + escapeHtml(aluno.turno) + ' (cadastro existente)</option>';
-    }
 
     return '<fieldset class="form-section">' +
-      '<legend>Dados de ingresso</legend>' +
+      '<legend>Dados de matrícula</legend>' +
       '<div class="form-grid">' +
-        '<div class="field"><label for="' + prefixo + '-curso">Curso</label><select id="' + prefixo + '-curso" required>' + cursoOptions + '</select><span class="field-hint">Código conforme o catálogo demonstrativo do notebook.</span></div>' +
+        '<div class="field"><label for="' + prefixo + '-curso">Curso</label><select id="' + prefixo + '-curso" required>' + cursoOptions + '</select><span class="field-hint">Catálogo do modelo (rótulo + código UCI).</span></div>' +
         '<div class="field"><label for="' + prefixo + '-data">Data de matrícula</label><input id="' + prefixo + '-data" type="date" value="' + escapeHtml(aluno.dataMatricula || hojeISO()) + '" required /></div>' +
-        '<div class="field"><label for="' + prefixo + '-idade">Idade na matrícula</label><input id="' + prefixo + '-idade" type="number" min="16" max="100" step="1" value="' + (aluno.idadeIngresso == null ? "" : aluno.idadeIngresso) + '" required /></div>' +
-        '<div class="field"><label for="' + prefixo + '-turno">Período do curso</label><select id="' + prefixo + '-turno" required>' + turnoOptions + '</select><span class="field-hint">Mapeado para diurno/noturno, como no dataset.</span></div>' +
-        '<div class="field"><label for="' + prefixo + '-ordem">Ordem da candidatura</label><input id="' + prefixo + '-ordem" type="number" min="0" step="1" value="' + (aluno.ordemCandidatura == null ? "" : aluno.ordemCandidatura) + '" /></div>' +
-        '<div class="field"><label for="' + prefixo + '-modo">Modo de ingresso (código provisório)</label><input id="' + prefixo + '-modo" type="number" min="0" step="1" value="' + (aluno.modoIngressoCodigo == null ? "" : aluno.modoIngressoCodigo) + '" /><span class="field-hint">Confirmar os códigos com a equipe do modelo antes de integrar.</span></div>' +
-        '<div class="field"><label for="' + prefixo + '-qualificacao">Escolaridade anterior (código provisório)</label><input id="' + prefixo + '-qualificacao" type="number" min="0" step="1" value="' + (aluno.qualificacaoAnteriorCodigo == null ? "" : aluno.qualificacaoAnteriorCodigo) + '" /><span class="field-hint">Confirmar os códigos com a equipe do modelo antes de integrar.</span></div>' +
-        '<div class="field"><label for="' + prefixo + '-civil">Estado civil</label><select id="' + prefixo + '-civil">' + opcoesEstadoCivil(aluno.estadoCivilCodigo) + '</select></div>' +
       '</div>' +
-    '</fieldset>' +
-    '<fieldset class="form-section">' +
-      '<legend>Situação financeira</legend>' +
-      '<div class="form-grid">' +
-        '<div class="field"><label for="' + prefixo + '-bolsa">Bolsa de estudos</label><select id="' + prefixo + '-bolsa">' + opcoesSimNao(aluno.bolsista) + '</select></div>' +
-        '<div class="field"><label for="' + prefixo + '-devedor">Possui dívida</label><select id="' + prefixo + '-devedor">' + opcoesSimNao(aluno.devedor) + '</select></div>' +
-        '<div class="field"><label for="' + prefixo + '-mensalidade">Mensalidades em dia</label><select id="' + prefixo + '-mensalidade">' + opcoesSimNao(aluno.mensalidadeEmDia) + '</select></div>' +
-      '</div>' +
-    '</fieldset>' +
-    '<p class="form-note">Os códigos de ingresso/escolaridade são provisórios. A previsão permanece pendente até a integração segura com a API.</p>';
+    '</fieldset>';
   }
 
   function renderCamposAcademicos(prefixo, aluno){
     aluno = aluno || {};
     return '<fieldset class="form-section">' +
       '<legend>Acompanhamento acadêmico</legend>' +
-      '<p class="form-section-note">Atualize estes indicadores após o início das aulas. Eles ainda não são enviados à API.</p>' +
+      '<p class="form-section-note">Indicadores informativos da plataforma. Não são enviados ao modelo: ele usa as notas por semestre (0–20) da seção &ldquo;Dados para predição&rdquo;.</p>' +
       '<div class="form-grid">' +
         '<div class="field"><label for="' + prefixo + '-freq">Frequência (%)</label><input id="' + prefixo + '-freq" type="number" min="0" max="100" step="0.1" value="' + (aluno.frequencia == null ? "" : aluno.frequencia) + '" /></div>' +
         '<div class="field"><label for="' + prefixo + '-media">Média acadêmica (0–10)</label><input id="' + prefixo + '-media" type="number" min="0" max="10" step="0.1" value="' + (aluno.media == null ? "" : aluno.media) + '" /></div>' +
-        '<div class="field"><label for="' + prefixo + '-reprovadas">Disciplinas reprovadas</label><input id="' + prefixo + '-reprovadas" type="number" min="0" step="1" value="' + (aluno.disciplinasReprovadas == null ? "" : aluno.disciplinasReprovadas) + '" /><span class="field-hint">Campo ilustrativo do payload descrito no README do backend.</span></div>' +
+        '<div class="field"><label for="' + prefixo + '-reprovadas">Disciplinas reprovadas</label><input id="' + prefixo + '-reprovadas" type="number" min="0" step="1" value="' + (aluno.disciplinasReprovadas == null ? "" : aluno.disciplinasReprovadas) + '" /></div>' +
       '</div>' +
     '</fieldset>';
   }
@@ -164,29 +178,76 @@
 
   function lerDadosIngresso(prefixo, alunoAnterior){
     function valor(campo){ return document.getElementById(prefixo + "-" + campo).value; }
-    function codigo(campo){ return valor(campo) === "" ? null : Number(valor(campo)); }
-    function simNao(campo){ return valor(campo) === "" ? null : valor(campo) === "1"; }
 
     var cursoValue = valor("curso");
     var curso = cursoValue === "legacy" ? null : cursoPorCodigo(cursoValue);
-    var turnoValue = valor("turno");
-    var turnoCodigo = turnoValue === "legacy" ? null : codigo("turno");
 
     return {
       cursoCodigo: curso ? curso.codigo : (alunoAnterior ? alunoAnterior.cursoCodigo || null : null),
       curso: curso ? curso.nome : (alunoAnterior ? alunoAnterior.curso : ""),
-      dataMatricula: valor("data"),
-      idadeIngresso: Number(valor("idade")),
-      turnoCodigo: turnoCodigo == null && alunoAnterior ? alunoAnterior.turnoCodigo || null : turnoCodigo,
-      turno: turnoCodigo === 1 ? "Diurno" : (turnoCodigo === 0 ? "Noturno" : (alunoAnterior ? alunoAnterior.turno : "")),
-      ordemCandidatura: codigo("ordem"),
-      modoIngressoCodigo: codigo("modo"),
-      qualificacaoAnteriorCodigo: codigo("qualificacao"),
-      estadoCivilCodigo: codigo("civil"),
-      bolsista: simNao("bolsa"),
-      devedor: simNao("devedor"),
-      mensalidadeEmDia: simNao("mensalidade")
+      dataMatricula: valor("data")
     };
+  }
+
+  /* ---------------- dados para predição: formulário ---------------- */
+
+  function valorDoCampo(aluno, campo){
+    var valor = campo.chave === "course" ? aluno.cursoCodigo : (aluno.dadosPredicao || {})[campo.chave];
+    return valor == null || valor === "" ? null : valor;
+  }
+
+  function renderCampoPredicao(prefixo, campo, aluno){
+    var id = prefixo + "-p-" + campo.chave;
+    var valor = valorDoCampo(aluno, campo);
+    var controle;
+    if(campo.tipo === "catalogo" || campo.tipo === "opcao"){
+      controle = '<select id="' + id + '"><option value="">Selecione</option>' + campo.opcoes.map(function(opcao){
+        return '<option value="' + opcao.codigo + '"' + (valor === opcao.codigo ? ' selected' : '') + '>' + escapeHtml(opcao.rotulo) + '</option>';
+      }).join("") + '</select>';
+    }else{
+      controle = '<input id="' + id + '" type="number" min="' + campo.min + '" max="' + campo.max + '" step="' + (campo.tipo === "inteiro" ? "1" : "any") + '" value="' + (valor == null ? "" : valor) + '" />';
+    }
+    return '<div class="field"><label for="' + id + '">' + escapeHtml(campo.rotulo) + '</label>' + controle + '</div>';
+  }
+
+  function renderCamposPredicao(prefixo, aluno){
+    var blocos = GRUPOS_PREDICAO.map(function(grupo){
+      var campos = CAMPOS_PREDICAO.filter(function(c){ return c.grupo === grupo && !c.cadastro; });
+      return '<div class="predict-group"><h4>' + escapeHtml(grupo) + '</h4><div class="form-grid">' +
+        campos.map(function(c){ return renderCampoPredicao(prefixo, c, aluno); }).join("") +
+      '</div></div>';
+    }).join("");
+
+    var botoes = Object.keys(PERFIS_EXEMPLO).map(function(chave){
+      return '<button type="button" class="btn btn-secondary js-exemplo" data-prefixo="' + prefixo + '" data-perfil="' + chave + '">' + escapeHtml(PERFIS_EXEMPLO[chave].rotulo) + '</button>';
+    }).join("");
+
+    return '<fieldset class="form-section">' +
+      '<legend>Dados para predição</legend>' +
+      '<p class="form-section-note">Todos os campos são obrigatórios para prever o risco; sem eles a previsão não é feita. O curso é escolhido em &ldquo;Dados de matrícula&rdquo;.</p>' +
+      '<div class="example-actions"><span>Carregar perfil de exemplo (linha real do dataset):</span>' + botoes + '</div>' +
+      blocos +
+    '</fieldset>';
+  }
+
+  function lerFormularioPredicao(prefixo){
+    var dados = {};
+    CAMPOS_PREDICAO.forEach(function(campo){
+      if(campo.cadastro) return;
+      var valor = document.getElementById(prefixo + "-p-" + campo.chave).value;
+      dados[campo.chave] = valor === "" ? null : Number(valor);
+    });
+    return dados;
+  }
+
+  function preencherPerfilExemplo(prefixo, chavePerfil){
+    var perfil = PERFIS_EXEMPLO[chavePerfil];
+    if(!perfil) return;
+    CAMPOS_PREDICAO.forEach(function(campo){
+      var el = document.getElementById(campo.cadastro ? prefixo + "-curso" : prefixo + "-p-" + campo.chave);
+      if(el) el.value = String(perfil.dados[campo.chave]);
+    });
+    mostrarToast("Perfil de exemplo carregado (" + perfil.rotulo.toLowerCase() + "). Salve para aplicar.");
   }
 
   function formatarData(iso){
@@ -213,38 +274,250 @@
     toastTimer = setTimeout(function(){ el.hidden = true; }, 2800);
   }
 
-  /* ---------------- resultado da API de previsão ---------------- */
+  /* ---------------- validação e payload ---------------- */
+
+  function valorValido(campo, valor){
+    if(typeof valor !== "number" || !isFinite(valor)) return false;
+    if(campo.tipo === "catalogo" || campo.tipo === "opcao"){
+      return campo.opcoes.some(function(opcao){ return opcao.codigo === valor; });
+    }
+    if(campo.tipo === "inteiro" && Math.floor(valor) !== valor) return false;
+    if(campo.min != null && valor < campo.min) return false;
+    if(campo.max != null && valor > campo.max) return false;
+    return true;
+  }
+
+  // Devolve os campos (do esquema) ausentes ou inválidos. Lista vazia = dados completos.
+  function camposFaltantes(aluno){
+    return CAMPOS_PREDICAO.filter(function(campo){
+      return !valorValido(campo, valorDoCampo(aluno, campo));
+    });
+  }
+
+  /*
+   * ÚNICO ponto de conversão código UCI -> valor do modelo.
+   * O manual da API (seções 5 e 13) manda enviar o código original da UCI, mas o modelo foi
+   * treinado com o CSV em que cada coluna categórica foi reindexada 1..N. A hipótese validada
+   * (ver testes) é: valor do modelo = posição (base 1) do código UCI no catálogo ordenado da
+   * seção 13 do manual (CATALOGOS em catalogos.js). Ex.: curso 33 -> 1; curso 9500 -> 12.
+   * Retorna null se o código não existe no catálogo.
+   */
+  function converterCodigoUciParaIndice(chave, codigoUci){
+    var lista = CATALOGOS[chave];
+    if(!lista) return codigoUci;
+    for(var i = 0; i < lista.length; i++){
+      if(lista[i].codigo === codigoUci) return i + 1;
+    }
+    return null;
+  }
+
+  // Monta os 34 campos exigidos pela API. Lança erro se faltar qualquer dado (sem padrões).
+  function montarPayload(aluno){
+    var faltantes = camposFaltantes(aluno);
+    if(faltantes.length){
+      throw new Error("Dados incompletos: " + faltantes.map(function(c){ return c.rotulo; }).join(", "));
+    }
+    var payload = {};
+    CAMPOS_PREDICAO.forEach(function(campo){
+      var valor = valorDoCampo(aluno, campo);
+      payload[campo.chave] = campo.tipo === "catalogo" ? converterCodigoUciParaIndice(campo.chave, valor) : valor;
+    });
+    return payload;
+  }
+
+  function hashDados(texto){
+    var h = 5381;
+    for(var i = 0; i < texto.length; i++) h = ((h << 5) + h + texto.charCodeAt(i)) | 0;
+    return (h >>> 0).toString(36);
+  }
+
+  function chaveCache(aluno, payload){
+    return aluno.id + ":" + hashDados(JSON.stringify(payload));
+  }
+
+  /* ---------------- comunicação com a API ---------------- */
+
+  function erroApi(tipo, mensagem){
+    var erro = new Error(mensagem);
+    erro.tipoErro = tipo;
+    return erro;
+  }
+
+  function mensagemHttp(status, dados){
+    var detalhe = dados && dados.detail;
+    if(status === 422 && Array.isArray(detalhe)){
+      return "A API recusou os dados (HTTP 422): " + detalhe.map(function(item){
+        var local = Array.isArray(item.loc) ? item.loc.filter(function(p){ return p !== "body"; }).join(".") : "";
+        return (local ? local + ": " : "") + item.msg;
+      }).join("; ");
+    }
+    if(typeof detalhe === "string") return "A API retornou HTTP " + status + ": " + detalhe;
+    return "A API retornou HTTP " + status + ".";
+  }
+
+  async function chamarApi(caminho, corpo){
+    var controlador = typeof AbortController === "function" ? new AbortController() : null;
+    var timer = setTimeout(function(){ if(controlador) controlador.abort(); }, API_TIMEOUT_MS);
+    var resposta;
+    try{
+      resposta = await fetch(API_BASE_URL + caminho, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(corpo),
+        signal: controlador ? controlador.signal : undefined
+      });
+    }catch(err){
+      throw erroApi("rede", err && err.name === "AbortError"
+        ? "A API não respondeu em " + (API_TIMEOUT_MS / 1000) + " s."
+        : "Não foi possível conectar à API em " + API_BASE_URL + ".");
+    }finally{
+      clearTimeout(timer);
+    }
+    var dados = null;
+    try{ dados = await resposta.json(); }catch(err){ dados = null; }
+    if(!resposta.ok) throw erroApi("http", mensagemHttp(resposta.status, dados));
+    return dados;
+  }
+
+  var NIVEL_API = { "Baixo Risco": "low", "Médio Risco": "mid", "Alto Risco de Evasão": "high" };
+
+  // Converte uma predição da API em {score, nivel, ...}; nunca aceita resposta fora do contrato.
+  function converterRespostaApi(resposta){
+    var p = resposta && resposta.dropout_probability;
+    var nivel = resposta ? NIVEL_API[resposta.risk_level] : null;
+    if(typeof p !== "number" || !isFinite(p) || p < 0 || p > 1 || !nivel){
+      throw erroApi("resposta", "A API devolveu uma resposta em formato inesperado.");
+    }
+    return {
+      score: Math.round(p * 100),
+      nivel: nivel,
+      probabilidade: p,
+      riskLevel: resposta.risk_level,
+      modelo: resposta.model_used || null,
+      acuracia: typeof resposta.model_accuracy === "number" ? resposta.model_accuracy : null,
+      evasaoPrevista: resposta.prediction === 1
+    };
+  }
+
+  async function preverRisco(aluno){
+    var payload = montarPayload(aluno);
+    var resultado = converterRespostaApi(await chamarApi("/predict", payload));
+    state.predicoes[chaveCache(aluno, payload)] = resultado;
+    return resultado;
+  }
+
+  async function preverLote(alunos){
+    var payloads = alunos.map(montarPayload);
+    var dados = await chamarApi("/predict/batch", { students: payloads });
+    if(!dados || !Array.isArray(dados.predictions) || dados.predictions.length !== payloads.length){
+      throw erroApi("resposta", "A API devolveu um lote em formato inesperado.");
+    }
+    var resultados = dados.predictions.map(converterRespostaApi);
+    alunos.forEach(function(aluno, i){
+      state.predicoes[chaveCache(aluno, payloads[i])] = resultados[i];
+    });
+  }
+
+  /* ---------------- previsões em cache (lista e contadores) ---------------- */
 
   function obterPrevisao(aluno){
-    var previsao = aluno && aluno.predicao;
-    if(!previsao || typeof previsao !== "object") return null;
-    var nivel = previsao.nivel || previsao.risk_level || previsao.riskLevel || null;
-    var probabilidade = previsao.probabilidadeEvasao;
-    if(probabilidade == null) probabilidade = previsao.dropout_probability;
-    if(probabilidade == null) probabilidade = previsao.dropoutProbability;
-    probabilidade = probabilidade == null ? null : Number(probabilidade);
-    if(probabilidade != null && (!isFinite(probabilidade) || probabilidade < 0 || probabilidade > 1)) probabilidade = null;
-    var nivelNormalizado = { LOW:"low", MEDIUM:"mid", MID:"mid", HIGH:"high", low:"low", mid:"mid", high:"high" }[nivel] || null;
-    if(!nivelNormalizado && probabilidade == null && typeof previsao.dropoutPrediction !== "boolean") return null;
-    return {
-      nivel: nivelNormalizado,
-      probabilidade: probabilidade,
-      evasaoPrevista: typeof previsao.dropoutPrediction === "boolean" ? previsao.dropoutPrediction : null,
-      versaoModelo: previsao.modelVersion || previsao.versaoModelo || null,
-      geradaEm: previsao.geradaEm || previsao.generated_at || null
-    };
+    if(camposFaltantes(aluno).length) return null;
+    return state.predicoes[chaveCache(aluno, montarPayload(aluno))] || null;
+  }
+
+  function estadoPrevisao(aluno){
+    if(camposFaltantes(aluno).length) return "incompleto";
+    if(obterPrevisao(aluno)) return "ok";
+    if(state.lote.status === "carregando") return "calculando";
+    if(state.lote.status === "erro") return "indisponivel";
+    return "sem";
+  }
+
+  // Uma única chamada /predict/batch para os alunos ativos, completos e ainda sem cache.
+  async function atualizarLote(){
+    var pendentes = state.alunos.filter(function(a){
+      return a.status === "ativo" && camposFaltantes(a).length === 0 && !obterPrevisao(a);
+    });
+    if(!pendentes.length){
+      if(state.lote.status === "erro") state.lote.status = "ocioso";
+      renderLista();
+      return;
+    }
+    var minhaSeq = ++state.lote.seq;
+    state.lote.status = "carregando";
+    state.lote.erro = null;
+    renderLista();
+    try{
+      await preverLote(pendentes);
+      if(minhaSeq === state.lote.seq) state.lote.status = "ocioso";
+    }catch(err){
+      if(minhaSeq === state.lote.seq){
+        state.lote.status = "erro";
+        state.lote.erro = err.message;
+      }
+    }
+    renderLista();
+    atualizarDetalheAberto();
   }
 
   var NIVEL_LABEL = { low: "Risco baixo", mid: "Risco médio", high: "Risco alto" };
 
   /* ---------------- armazenamento ---------------- */
 
+  function migrarAluno(aluno){
+    if(aluno.versaoDados === VERSAO_DADOS && aluno.dadosPredicao && typeof aluno.dadosPredicao === "object") return aluno;
+
+    function numero(v){ return typeof v === "number" && isFinite(v) ? v : null; }
+    function indicador(v){ return v === true ? 1 : (v === false ? 0 : null); }
+
+    var dados = {
+      marital_status: numero(aluno.estadoCivilCodigo),
+      application_order: numero(aluno.ordemCandidatura),
+      daytime_evening_attendance: numero(aluno.turnoCodigo),
+      age_at_enrollment: numero(aluno.idadeIngresso),
+      scholarship_holder: indicador(aluno.bolsista),
+      debtor: indicador(aluno.devedor),
+      tuition_fees_up_to_date: indicador(aluno.mensalidadeEmDia)
+    };
+
+    // O curso era guardado como índice 1..17; agora é o código UCI do catálogo.
+    var indice = Number(aluno.cursoCodigo);
+    if(indice >= 1 && indice <= CATALOGOS.course.length){
+      aluno.cursoCodigo = CATALOGOS.course[indice - 1].codigo;
+      aluno.curso = CATALOGOS.course[indice - 1].rotulo;
+    }else if(!cursoPorCodigo(aluno.cursoCodigo)){
+      aluno.cursoCodigo = null;
+    }
+
+    // Modo de ingresso e escolaridade anterior eram códigos "provisórios": são descartados
+    // (precisam ser preenchidos de novo com o catálogo correto).
+    ["estadoCivilCodigo", "ordemCandidatura", "turnoCodigo", "idadeIngresso", "bolsista", "devedor",
+     "mensalidadeEmDia", "modoIngressoCodigo", "qualificacaoAnteriorCodigo", "predicao", "versaoDemo"
+    ].forEach(function(chave){ delete aluno[chave]; });
+
+    aluno.dadosPredicao = dados;
+    aluno.versaoDados = VERSAO_DADOS;
+    return aluno;
+  }
+
+  function sincronizarTurno(aluno){
+    var codigo = (aluno.dadosPredicao || {}).daytime_evening_attendance;
+    if(codigo === 1) aluno.turno = "Diurno";
+    else if(codigo === 0) aluno.turno = "Noturno";
+    else aluno.turno = aluno.turno || "";
+  }
+
   function carregarDados(){
     try{
       var alunosSalvos = alunosService.listar();
       if(alunosSalvos){
-        state.alunos = atualizarExemplosConhecidos(alunosSalvos);
-        if(state.alunos !== alunosSalvos) salvarDados();
+        var precisaSalvar = alunosSalvos.some(function(a){ return a.versaoDados !== VERSAO_DADOS; });
+        state.alunos = alunosSalvos.map(function(aluno){
+          var migrado = migrarAluno(aluno);
+          sincronizarTurno(migrado);
+          return migrado;
+        });
+        if(precisaSalvar) salvarDados();
         return;
       }
     }catch(err){
@@ -253,23 +526,6 @@
     // primeira vez usando a página (ou dado corrompido/indisponível): começa com exemplos
     state.alunos = gerarAlunosExemplo();
     salvarDados();
-  }
-
-  function atualizarExemplosConhecidos(alunos){
-    var nomesExemplo = {
-      "Fernanda Alves Costa": true,
-      "João Pedro Martins": true,
-      "Mariana Ribeiro Santos": true,
-      "Cauã Victor Camargo": true
-    };
-    var migrado = false;
-    var alunosAtualizados = alunos.map(function(aluno){
-      var perfil = dadosIngressoExemplo(aluno.nome);
-      if(!nomesExemplo[aluno.nome] || !perfil || aluno.versaoDemo === 3) return aluno;
-      migrado = true;
-      return Object.assign({}, aluno, perfil);
-    });
-    return migrado ? alunosAtualizados : alunos;
   }
 
   function salvarDados(){
@@ -282,39 +538,32 @@
     }
   }
 
-  function gerarAlunosExemplo(){
-    return [
-      Object.assign({ id: gerarId(), nome:"Fernanda Alves Costa", email:"fernanda.costa@escola.com", dataMatricula:"2024-01-22", frequencia:52, media:4.2, status:"ativo" }, dadosIngressoExemplo("Fernanda Alves Costa")),
-      Object.assign({ id: gerarId(), nome:"João Pedro Martins", email:"joao.martins@escola.com", dataMatricula:"2022-03-01", frequencia:68, media:5.5, status:"ativo" }, dadosIngressoExemplo("João Pedro Martins")),
-      Object.assign({ id: gerarId(), nome:"Mariana Ribeiro Santos", email:"mariana.santos@escola.com", dataMatricula:"2024-05-06", frequencia:88, media:7.8, status:"ativo" }, dadosIngressoExemplo("Mariana Ribeiro Santos")),
-      Object.assign({ id: gerarId(), nome:"Cauã Victor Camargo", email:"caua.camargo@escola.com", dataMatricula:hojeISO(), frequencia:100, media:10.0, status:"ativo" }, dadosIngressoExemplo("Cauã Victor Camargo"))
-    ];
+  function criarAlunoExemplo(base, chavePerfil){
+    var aluno = Object.assign({ id: gerarId(), status: "ativo", disciplinasReprovadas: null, versaoDados: VERSAO_DADOS }, base);
+    var dados = {};
+    var codigoCurso = null;
+    if(chavePerfil){
+      dados = Object.assign({}, PERFIS_EXEMPLO[chavePerfil].dados);
+      codigoCurso = dados.course;
+      delete dados.course;
+    }else{
+      codigoCurso = 9147;
+    }
+    aluno.cursoCodigo = codigoCurso;
+    aluno.curso = cursoPorCodigo(codigoCurso).nome;
+    aluno.dadosPredicao = dados;
+    sincronizarTurno(aluno);
+    return aluno;
   }
 
-  function dadosIngressoExemplo(nome){
-    var perfis = {
-      "Fernanda Alves Costa": {
-        cursoCodigo:1, curso:"Tecnologias de Produção de Biocombustíveis", idadeIngresso:19,
-        turnoCodigo:1, turno:"Diurno", ordemCandidatura:1, modoIngressoCodigo:1,
-        qualificacaoAnteriorCodigo:1, estadoCivilCodigo:1, bolsista:false, devedor:true, mensalidadeEmDia:false, disciplinasReprovadas:4, versaoDemo:3
-      },
-      "João Pedro Martins": {
-        cursoCodigo:7, curso:"Engenharia Informática", idadeIngresso:24,
-        turnoCodigo:0, turno:"Noturno", ordemCandidatura:2, modoIngressoCodigo:39,
-        qualificacaoAnteriorCodigo:3, estadoCivilCodigo:2, bolsista:false, devedor:true, mensalidadeEmDia:false, disciplinasReprovadas:2, versaoDemo:3
-      },
-      "Mariana Ribeiro Santos": {
-        cursoCodigo:16, curso:"Educação Básica", idadeIngresso:21,
-        turnoCodigo:1, turno:"Diurno", ordemCandidatura:1, modoIngressoCodigo:16,
-        qualificacaoAnteriorCodigo:1, estadoCivilCodigo:2, bolsista:true, devedor:false, mensalidadeEmDia:true, disciplinasReprovadas:1, versaoDemo:3
-      },
-      "Cauã Victor Camargo": {
-        cursoCodigo:9, curso:"Gestão", idadeIngresso:18,
-        turnoCodigo:1, turno:"Diurno", ordemCandidatura:3, modoIngressoCodigo:1,
-        qualificacaoAnteriorCodigo:1, estadoCivilCodigo:1, bolsista:false, devedor:false, mensalidadeEmDia:true, disciplinasReprovadas:0, versaoDemo:3
-      }
-    };
-    return perfis[nome];
+  // Exemplos de demonstração: três perfis reais do dataset (alto, médio e baixo risco) e um cadastro novo, incompleto.
+  function gerarAlunosExemplo(){
+    return [
+      criarAlunoExemplo({ nome:"Fernanda Alves Costa", email:"fernanda.costa@escola.com", dataMatricula:"2024-01-22", frequencia:52, media:4.2 }, "alto"),
+      criarAlunoExemplo({ nome:"João Pedro Martins", email:"joao.martins@escola.com", dataMatricula:"2022-03-01", frequencia:68, media:5.5 }, "medio"),
+      criarAlunoExemplo({ nome:"Mariana Ribeiro Santos", email:"mariana.santos@escola.com", dataMatricula:"2024-05-06", frequencia:88, media:7.8 }, "baixo"),
+      criarAlunoExemplo({ nome:"Cauã Victor Camargo", email:"caua.camargo@escola.com", dataMatricula:hojeISO(), frequencia:null, media:null }, null)
+    ];
   }
 
   /* ---------------- renderização: lista ---------------- */
@@ -382,22 +631,38 @@
     });
   }
 
+  function renderStatusApi(){
+    var el = document.getElementById("api-status");
+    if(state.lote.status === "carregando"){
+      el.hidden = false;
+      el.className = "api-status";
+      el.innerHTML = 'Consultando o modelo de predição…';
+    }else if(state.lote.status === "erro"){
+      el.hidden = false;
+      el.className = "api-status erro";
+      el.innerHTML = '<strong>Predição indisponível.</strong> ' + escapeHtml(state.lote.erro || "") + ' <button type="button" class="btn-link js-tentar-lote">Tentar novamente</button>';
+    }else{
+      el.hidden = true;
+      el.innerHTML = "";
+    }
+  }
+
   function renderStats(){
     var ativos = state.alunos.filter(function(a){ return a.status === "ativo"; });
-    var counts = { low:0, mid:0, high:0, pendente:0, previstas:0 };
+    var counts = { low:0, mid:0, high:0, previstas:0 };
     ativos.forEach(function(a){
       var previsao = obterPrevisao(a);
-      if(!previsao){ counts.pendente++; return; }
+      if(!previsao) return;
       counts.previstas++;
-      if(counts[previsao.nivel] !== undefined) counts[previsao.nivel]++;
+      counts[previsao.nivel]++;
     });
 
     var el = document.getElementById("stats-row");
     el.innerHTML =
       '<div class="stat-card"><div class="stat-value">' + ativos.length + '</div><div class="stat-label">Alunos ativos</div></div>' +
-      '<div class="stat-card"><div class="stat-value">' + counts.previstas + '</div><div class="stat-label">Previsões da API</div></div>' +
-      '<div class="stat-card high"><div class="stat-value">' + counts.high + '</div><div class="stat-label">Alto risco retornado</div></div>' +
-      '<div class="stat-card"><div class="stat-value">' + counts.pendente + '</div><div class="stat-label">Aguardando API</div></div>';
+      '<div class="stat-card"><div class="stat-value">' + counts.previstas + '</div><div class="stat-label">Previsões do modelo</div></div>' +
+      '<div class="stat-card high"><div class="stat-value">' + counts.high + '</div><div class="stat-label">Alto risco</div></div>' +
+      '<div class="stat-card"><div class="stat-value">' + (ativos.length - counts.previstas) + '</div><div class="stat-label">Sem predição</div></div>';
   }
 
   function preencherFiltros(){
@@ -417,7 +682,23 @@
     }).join("");
   }
 
+  function renderPillRisco(aluno){
+    var estado = estadoPrevisao(aluno);
+    if(estado === "ok"){
+      var previsao = obterPrevisao(aluno);
+      return '<span class="pill ' + previsao.nivel + '" title="' + escapeHtml(previsao.riskLevel) + '">' + NIVEL_LABEL[previsao.nivel] + ' · ' + previsao.score + '%</span>';
+    }
+    var textos = {
+      incompleto: ["Sem predição", "Dados incompletos"],
+      calculando: ["Calculando…", "Consultando o modelo"],
+      indisponivel: ["Predição indisponível", state.lote.erro || ""],
+      sem: ["Sem predição", ""]
+    };
+    return '<span class="pill pending" title="' + escapeHtml(textos[estado][1]) + '">' + textos[estado][0] + '</span>';
+  }
+
   function renderLista(){
+    renderStatusApi();
     renderStats();
 
     var tbody = document.getElementById("students-tbody");
@@ -441,9 +722,6 @@
     }
 
     tbody.innerHTML = lista.map(function(a){
-      var previsao = obterPrevisao(a);
-      var riscoNivel = previsao && NIVEL_LABEL[previsao.nivel] ? previsao.nivel : "pending";
-      var riscoTexto = riscoNivel === "pending" ? "Aguardando API" : NIVEL_LABEL[riscoNivel];
       return (
         '<tr>' +
           '<td class="cell-name" data-label="Aluno">' +
@@ -452,7 +730,7 @@
           '</td>' +
           '<td class="cell-mono" data-label="Matriculado desde">' + formatarData(a.dataMatricula) + '</td>' +
           '<td class="cell-mono" data-label="Frequência">' + (a.frequencia == null ? "—" : a.frequencia + "%") + '</td>' +
-          '<td data-label="Previsão da IA"><span class="pill ' + riscoNivel + '">' + riscoTexto + '</span></td>' +
+          '<td data-label="Previsão da IA">' + renderPillRisco(a) + '</td>' +
           '<td data-label="Ações">' +
             '<div class="cell-actions">' +
               '<button class="btn-icon js-editar" data-id="' + a.id + '" title="Editar" aria-label="Editar aluno">✎</button>' +
@@ -466,27 +744,81 @@
 
   /* ---------------- renderização: detalhe ---------------- */
 
+  function buscarAluno(id){
+    return state.alunos.find(function(a){ return a.id === id; }) || null;
+  }
+
+  function detalheAberto(){
+    return !document.getElementById("view-detail").hidden;
+  }
+
   function abrirDetalhe(id){
-    var aluno = state.alunos.find(function(a){ return a.id === id; });
+    var aluno = buscarAluno(id);
     if(!aluno) return;
 
+    state.detalhe = { id: id, token: ++sequenciaDetalhe, carregando: false, erro: null };
     document.getElementById("view-list").hidden = true;
     document.getElementById("view-detail").hidden = false;
     renderDetalhe(aluno);
   }
 
-  function renderDetalhe(aluno){
+  function fecharDetalhe(){
+    state.detalhe = null;
+    document.getElementById("view-detail").hidden = true;
+    document.getElementById("view-list").hidden = false;
+  }
+
+  function atualizarDetalheAberto(){
+    if(!state.detalhe || !detalheAberto()) return;
+    var aluno = buscarAluno(state.detalhe.id);
+    if(aluno) renderDetalhe(aluno);
+  }
+
+  function formatarPercentual(probabilidade){
+    return (probabilidade * 100).toFixed(1).replace(".", ",") + "%";
+  }
+
+  function renderFaltantes(faltantes){
+    return GRUPOS_PREDICAO.map(function(grupo){
+      var campos = faltantes.filter(function(c){ return c.grupo === grupo; });
+      if(!campos.length) return "";
+      return '<li><strong>' + escapeHtml(grupo) + ':</strong> ' + campos.map(function(c){ return escapeHtml(c.rotulo); }).join("; ") + '</li>';
+    }).join("");
+  }
+
+  function renderPrevisaoHtml(aluno){
+    var faltantes = camposFaltantes(aluno);
+    var detalhe = state.detalhe && state.detalhe.id === aluno.id ? state.detalhe : { carregando: false, erro: null };
+    var botao = function(texto, desabilitado){
+      return '<div class="form-actions" style="justify-content:flex-start; margin-top:16px;"><button type="button" class="btn btn-primary js-prever" data-id="' + aluno.id + '"' + (desabilitado ? ' disabled' : '') + '>' + texto + '</button></div>';
+    };
+
+    if(faltantes.length){
+      return '<div class="prediction-pending"><strong>Dados incompletos</strong>' +
+        '<p>Faltam ' + faltantes.length + ' de ' + CAMPOS_PREDICAO.length + ' campos para prever o risco. Preencha em <em>Editar dados → Dados para predição</em>:</p>' +
+        '<ul class="missing-list">' + renderFaltantes(faltantes) + '</ul>' +
+        botao("Prever risco", true) + '</div>';
+    }
+    if(detalhe.carregando){
+      return '<div class="prediction-pending prediction-loading" role="status"><strong>Consultando o modelo…</strong><p>Aguarde a resposta da API.</p>' + botao("Prever risco", true) + '</div>';
+    }
     var previsao = obterPrevisao(aluno);
+    if(previsao){
+      return '<div class="prediction-result"><span class="pill ' + previsao.nivel + '">' + escapeHtml(previsao.riskLevel) + '</span>' +
+        '<p class="prediction-percent">' + formatarPercentual(previsao.probabilidade) + '</p>' +
+        '<p>probabilidade de evasão (dropout_probability)</p>' +
+        '<small>' + LEGENDA_MODELO + '</small>' + botao("Prever novamente", false) + '</div>';
+    }
+    if(detalhe.erro){
+      return '<div class="prediction-pending prediction-error" role="alert"><strong>Predição indisponível</strong><p>' + escapeHtml(detalhe.erro) + '</p>' + botao("Tentar novamente", false) + '</div>';
+    }
+    return '<div class="prediction-pending"><strong>Previsão ainda não calculada</strong><p>Os dados estão completos. Clique em &ldquo;Prever risco&rdquo; para consultar o modelo.</p>' + botao("Prever risco", false) + '</div>';
+  }
+
+  function renderDetalhe(aluno){
     var el = document.getElementById("detail-content");
-    var statusPrevisao = previsao && previsao.nivel
-      ? NIVEL_LABEL[previsao.nivel]
-      : (previsao && previsao.evasaoPrevista === true ? "Evasão prevista" : (previsao && previsao.evasaoPrevista === false ? "Sem evasão prevista" : "Previsão recebida"));
-    var probabilidadeTexto = previsao && previsao.probabilidade != null
-      ? (previsao.probabilidade * 100).toFixed(1).replace(".", ",") + "% de probabilidade estimada"
-      : "A API ainda não retornou uma probabilidade.";
-    var previsaoHtml = previsao
-      ? '<div class="prediction-result"><span class="pill ' + (previsao.nivel || "pending") + '">' + escapeHtml(statusPrevisao) + '</span><p>' + escapeHtml(probabilidadeTexto) + '</p>' + (previsao.versaoModelo ? '<small>Modelo ' + escapeHtml(previsao.versaoModelo) + '</small>' : '') + (previsao.geradaEm ? '<small>Atualizada em ' + escapeHtml(previsao.geradaEm) + '</small>' : '') + '</div>'
-      : '<div class="prediction-pending"><strong>Aguardando previsão</strong><p>A matrícula foi salva. O MVP ainda não está conectado à API de predição.</p></div>';
+    var dados = aluno.dadosPredicao || {};
+    var preenchidos = CAMPOS_PREDICAO.length - camposFaltantes(aluno).length;
 
     el.innerHTML =
       '<div class="detail-grid">' +
@@ -498,8 +830,9 @@
               '<p class="profile-meta">' + escapeHtml(aluno.email) + '</p>' +
             '</div>' +
           '</div>' +
-          '<p class="profile-meta">Idade na matrícula: <strong>' + (aluno.idadeIngresso == null ? "—" : aluno.idadeIngresso) + '</strong></p>' +
-          '<p class="profile-meta">Código do curso: <strong>' + (aluno.cursoCodigo == null ? "—" : aluno.cursoCodigo) + '</strong></p>' +
+          '<p class="profile-meta">Idade na matrícula: <strong>' + (dados.age_at_enrollment == null ? "—" : dados.age_at_enrollment) + '</strong></p>' +
+          '<p class="profile-meta">Código do curso (UCI): <strong>' + (aluno.cursoCodigo == null ? "—" : aluno.cursoCodigo) + '</strong></p>' +
+          '<p class="profile-meta">Dados para predição: <strong>' + preenchidos + ' de ' + CAMPOS_PREDICAO.length + '</strong> campos preenchidos</p>' +
               '<div class="academic-summary"><h3>Acompanhamento acadêmico</h3>' +
                 '<p>Frequência <strong>' + (aluno.frequencia == null ? "Pendente" : Number(aluno.frequencia).toFixed(1).replace(".", ",") + "%") + '</strong></p>' +
                 '<p>Média <strong>' + (aluno.media == null ? "Pendente" : Number(aluno.media).toFixed(1).replace(".", ",") + " / 10") + '</strong></p>' +
@@ -513,9 +846,33 @@
 
         '<div class="card">' +
           '<h2>Previsão de evasão</h2>' +
-          previsaoHtml +
+          renderPrevisaoHtml(aluno) +
         '</div>' +
       '</div>';
+  }
+
+  // Dispara /predict para o aluno da ficha. Respostas tardias (outra tela/aluno) não alteram a interface.
+  async function executarPrevisaoDetalhe(id){
+    var aluno = buscarAluno(id);
+    if(!aluno) return;
+
+    var token = ++sequenciaDetalhe;
+    state.detalhe = { id: id, token: token, carregando: true, erro: null };
+    renderDetalhe(aluno);
+
+    var erro = null;
+    try{
+      await preverRisco(aluno);
+    }catch(err){
+      erro = err.message || "Falha ao consultar a API.";
+    }
+
+    if(!state.detalhe || state.detalhe.token !== token || !detalheAberto()) return;
+    state.detalhe.carregando = false;
+    state.detalhe.erro = erro;
+    var alunoAtual = buscarAluno(id);
+    if(alunoAtual) renderDetalhe(alunoAtual);
+    renderLista();
   }
 
   /* ---------------- modais ---------------- */
@@ -539,7 +896,7 @@
   function abrirModalNovoAluno(){
     abrirModal(
       '<h2 id="modal-title">Matricular aluno</h2>' +
-      '<p class="modal-sub">Cadastre os dados de ingresso. Frequência, notas e reprovações são acompanhadas depois do início das aulas.</p>' +
+      '<p class="modal-sub">Cadastro básico. Os dados para predição de evasão são preenchidos depois, em Editar dados.</p>' +
       '<form id="form-novo-aluno">' +
         '<div class="form-grid single">' +
           '<div class="field"><label for="f-nome">Nome completo</label><input id="f-nome" required /></div>' +
@@ -564,20 +921,12 @@
         cursoCodigo: ingresso.cursoCodigo,
         curso: ingresso.curso,
         dataMatricula: ingresso.dataMatricula,
-        idadeIngresso: ingresso.idadeIngresso,
-        turnoCodigo: ingresso.turnoCodigo,
-        turno: ingresso.turno,
-        ordemCandidatura: ingresso.ordemCandidatura,
-        modoIngressoCodigo: ingresso.modoIngressoCodigo,
-        qualificacaoAnteriorCodigo: ingresso.qualificacaoAnteriorCodigo,
-        estadoCivilCodigo: ingresso.estadoCivilCodigo,
-        bolsista: ingresso.bolsista,
-        devedor: ingresso.devedor,
-        mensalidadeEmDia: ingresso.mensalidadeEmDia,
+        turno: "",
         frequencia: null,
         media: null,
         disciplinasReprovadas: null,
-        predicao: null,
+        dadosPredicao: {},
+        versaoDados: VERSAO_DADOS,
         status: "ativo"
       };
       state.alunos.push(novo);
@@ -592,18 +941,19 @@
   }
 
   function abrirModalEditar(id){
-    var aluno = state.alunos.find(function(a){ return a.id === id; });
+    var aluno = buscarAluno(id);
     if(!aluno) return;
 
     abrirModal(
       '<h2 id="modal-title">Editar aluno</h2>' +
-      '<p class="modal-sub">Atualize os dados cadastrais, de ingresso e os indicadores acadêmicos disponíveis.</p>' +
+      '<p class="modal-sub">Atualize os dados cadastrais, os dados para predição e os indicadores acadêmicos.</p>' +
       '<form id="form-editar-aluno">' +
         '<fieldset class="form-section form-section-first"><legend>Dados cadastrais</legend><div class="form-grid">' +
           '<div class="field"><label for="e-nome">Nome completo</label><input id="e-nome" value="' + escapeHtml(aluno.nome) + '" required /></div>' +
           '<div class="field"><label for="e-email">E-mail</label><input id="e-email" type="email" value="' + escapeHtml(aluno.email) + '" required /></div>' +
         '</div></fieldset>' +
         renderCamposIngresso("e", aluno) +
+        renderCamposPredicao("e", aluno) +
         renderCamposAcademicos("e", aluno) +
         '<div class="form-actions">' +
           '<button type="button" class="btn btn-secondary" id="btn-cancelar-modal">Cancelar</button>' +
@@ -619,22 +969,29 @@
       aluno.email = document.getElementById("e-email").value.trim();
       var ingresso = lerDadosIngresso("e", aluno);
       Object.keys(ingresso).forEach(function(chave){ aluno[chave] = ingresso[chave]; });
+      aluno.dadosPredicao = lerFormularioPredicao("e");
+      sincronizarTurno(aluno);
       var academicos = lerDadosAcademicos("e");
       Object.keys(academicos).forEach(function(chave){ aluno[chave] = academicos[chave]; });
-      aluno.predicao = null;
+      // Invalida respostas em andamento para esta ficha: os dados mudaram.
+      if(state.detalhe && state.detalhe.id === aluno.id){
+        state.detalhe = { id: aluno.id, token: ++sequenciaDetalhe, carregando: false, erro: null };
+      }
 
       if(!salvarDados()) return;
+      preencherFiltros();
       renderLista();
       fecharModal();
       mostrarToast("Dados atualizados.");
-      if(!document.getElementById("view-detail").hidden){
+      if(detalheAberto()){
         renderDetalhe(aluno);
       }
+      atualizarLote();
     });
   }
 
   function abrirModalExcluir(id){
-    var aluno = state.alunos.find(function(a){ return a.id === id; });
+    var aluno = buscarAluno(id);
     if(!aluno) return;
 
     abrirModal(
@@ -656,8 +1013,7 @@
       }
       fecharModal();
       mostrarToast("Aluno excluído.");
-      document.getElementById("view-detail").hidden = true;
-      document.getElementById("view-list").hidden = false;
+      fecharDetalhe();
       renderLista();
     });
   }
@@ -668,8 +1024,7 @@
   document.getElementById("btn-empty-new").addEventListener("click", abrirModalNovoAluno);
 
   document.getElementById("btn-back").addEventListener("click", function(){
-    document.getElementById("view-detail").hidden = true;
-    document.getElementById("view-list").hidden = false;
+    fecharDetalhe();
     renderLista();
   });
 
@@ -729,6 +1084,14 @@
 
     var excluir = e.target.closest(".js-excluir");
     if(excluir){ abrirModalExcluir(excluir.getAttribute("data-id")); return; }
+
+    var prever = e.target.closest(".js-prever");
+    if(prever){ executarPrevisaoDetalhe(prever.getAttribute("data-id")); return; }
+
+    var exemplo = e.target.closest(".js-exemplo");
+    if(exemplo){ preencherPerfilExemplo(exemplo.getAttribute("data-prefixo"), exemplo.getAttribute("data-perfil")); return; }
+
+    if(e.target.closest(".js-tentar-lote")){ atualizarLote(); return; }
   });
 
   /* ---------------- inicialização ---------------- */
@@ -737,5 +1100,18 @@
   preencherFiltros();
   state.loaded = true;
   renderLista();
+  atualizarLote();
+
+  // Gancho de teste: só existe se a página definir window.__EXPOR_TESTE__ antes de carregar.
+  if(window.__EXPOR_TESTE__){
+    window.__teste = {
+      montarPayload: montarPayload,
+      camposFaltantes: camposFaltantes,
+      preverRisco: preverRisco,
+      converterCodigoUciParaIndice: converterCodigoUciParaIndice,
+      CAMPOS_PREDICAO: CAMPOS_PREDICAO,
+      state: state
+    };
+  }
 
 })();

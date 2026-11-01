@@ -79,6 +79,7 @@
   var state = {
     alunos: [], loaded: false, query: "", risco: "", turno: "", curso: "", ordenacao: { campo: null, direcao: "asc" },
     predicoes: {},
+    api: { status: "desconhecido", detalhe: null },
     lote: { status: "ocioso", erro: null, seq: 0 },
     detalhe: null
   };
@@ -458,6 +459,159 @@
     }
     renderLista();
     atualizarDetalheAberto();
+  }
+
+  /* ---------------- saúde da API (health-check) ---------------- */
+
+  var API_HEALTH_TIMEOUT_MS = 5000;
+  var ROTULOS_API = {
+    desconhecido: "API: não verificada",
+    verificando: "API: verificando…",
+    online: "API online",
+    offline: "API offline",
+    modelo: "API sem modelo"
+  };
+
+  // Consulta GET /health. Resultado em state.api.status: online | offline | modelo.
+  async function verificarSaudeApi(){
+    var controlador = typeof AbortController === "function" ? new AbortController() : null;
+    var timer = setTimeout(function(){ if(controlador) controlador.abort(); }, API_HEALTH_TIMEOUT_MS);
+    state.api = { status: "verificando", detalhe: null };
+    renderBadgeApi();
+    try{
+      var resposta = await fetch(API_BASE_URL + "/health", { signal: controlador ? controlador.signal : undefined });
+      var dados = null;
+      try{ dados = await resposta.json(); }catch(err){ dados = null; }
+      if(!resposta.ok){
+        state.api = { status: "offline", detalhe: "A API respondeu HTTP " + resposta.status + " em /health." };
+      }else if(dados && dados.status === "healthy" && dados.model_loaded === true){
+        state.api = { status: "online", detalhe: "Modelo carregado e pronto." };
+      }else{
+        state.api = { status: "modelo", detalhe: "A API respondeu, mas o modelo não está carregado." };
+      }
+    }catch(err){
+      state.api = { status: "offline", detalhe: "Não foi possível conectar à API em " + API_BASE_URL + "." };
+    }finally{
+      clearTimeout(timer);
+    }
+    renderBadgeApi();
+    return state.api.status;
+  }
+
+  function renderBadgeApi(){
+    var el = document.getElementById("api-badge");
+    if(!el) return;
+    var status = state.api.status;
+    el.className = "api-badge " + status;
+    el.textContent = ROTULOS_API[status] || ROTULOS_API.desconhecido;
+    el.title = (state.api.detalhe ? state.api.detalhe + " " : "") + "Clique para verificar novamente.";
+  }
+
+  async function reverificarApi(){
+    var status = await verificarSaudeApi();
+    if(status === "online") atualizarLote();
+  }
+
+  /* ---------------- backup: exportar e importar ---------------- */
+
+  function montarBackup(){
+    return { versaoDados: VERSAO_DADOS, exportadoEm: new Date().toISOString(), alunos: state.alunos };
+  }
+
+  function exportarDados(){
+    var texto = JSON.stringify(montarBackup(), null, 2);
+    var blob = new Blob([texto], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = "alunos-backup-" + hojeISO() + ".json";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+    mostrarToast("Backup exportado (" + state.alunos.length + " aluno(s)).");
+  }
+
+  // Valida o conteúdo de um backup e devolve a lista já migrada. Lança Error se algo estiver inválido;
+  // nada é alterado em state aqui (validação completa antes de qualquer mudança).
+  function interpretarBackup(texto){
+    var dados;
+    try{ dados = JSON.parse(texto); }catch(err){ throw new Error("O arquivo não é um JSON válido."); }
+    var lista = Array.isArray(dados) ? dados : (dados && dados.alunos);
+    if(!Array.isArray(lista)) throw new Error("Formato não reconhecido: esperada uma lista de alunos.");
+    if(!Array.isArray(dados) && typeof dados.versaoDados === "number" && dados.versaoDados > VERSAO_DADOS){
+      throw new Error("O backup foi gerado por uma versão mais nova da plataforma (dados v" + dados.versaoDados + ").");
+    }
+    if(!lista.length) throw new Error("O backup não contém nenhum aluno.");
+    var ids = {};
+    return lista.map(function(aluno, i){
+      if(!aluno || typeof aluno !== "object" || typeof aluno.nome !== "string" || !aluno.nome.trim() || typeof aluno.curso !== "string"){
+        throw new Error("Registro " + (i + 1) + " inválido: nome e curso são obrigatórios.");
+      }
+      var migrado = migrarAluno(aluno);
+      if(!migrado.id || ids[migrado.id]) migrado.id = gerarId();
+      ids[migrado.id] = true;
+      if(!migrado.status) migrado.status = "ativo";
+      sincronizarTurno(migrado);
+      return migrado;
+    });
+  }
+
+  // modo "substituir": só os importados; "mesclar": mantém os atuais e sobrescreve os de mesmo id.
+  function combinarAlunos(atuais, importados, modo){
+    if(modo === "substituir") return importados.slice();
+    var porId = {};
+    importados.forEach(function(a){ porId[a.id] = a; });
+    var usados = {};
+    var resultado = atuais.map(function(a){
+      if(porId[a.id]){ usados[a.id] = true; return porId[a.id]; }
+      return a;
+    });
+    importados.forEach(function(a){ if(!usados[a.id]) resultado.push(a); });
+    return resultado;
+  }
+
+  function aplicarImportacao(importados, modo){
+    var anteriores = state.alunos;
+    state.alunos = combinarAlunos(anteriores, importados, modo);
+    if(!salvarDados()){
+      state.alunos = anteriores;
+      return false;
+    }
+    state.predicoes = {};
+    fecharModal();
+    fecharDetalhe();
+    renderLista();
+    mostrarToast("Importação concluída (" + state.alunos.length + " aluno(s) na lista).");
+    atualizarLote();
+    return true;
+  }
+
+  function abrirModalImportar(importados, nomeArquivo){
+    abrirModal(
+      '<h2 id="modal-title">Importar dados</h2>' +
+      '<p class="modal-sub">O arquivo <strong>' + escapeHtml(nomeArquivo) + '</strong> contém <strong>' + importados.length +
+      '</strong> aluno(s). Atualmente há <strong>' + state.alunos.length + '</strong> na lista.</p>' +
+      '<p class="modal-sub"><strong>Mesclar</strong> mantém os atuais e sobrescreve os de mesmo identificador. ' +
+      '<strong>Substituir</strong> apaga a lista atual e não pode ser desfeito (exporte um backup antes).</p>' +
+      '<div class="form-actions">' +
+        '<button type="button" class="btn btn-secondary" id="btn-cancelar-modal">Cancelar</button>' +
+        '<button type="button" class="btn btn-secondary" id="btn-importar-mesclar">Mesclar</button>' +
+        '<button type="button" class="btn btn-danger" id="btn-importar-substituir">Substituir</button>' +
+      '</div>'
+    );
+    document.getElementById("btn-cancelar-modal").addEventListener("click", fecharModal);
+    document.getElementById("btn-importar-mesclar").addEventListener("click", function(){ aplicarImportacao(importados, "mesclar"); });
+    document.getElementById("btn-importar-substituir").addEventListener("click", function(){ aplicarImportacao(importados, "substituir"); });
+  }
+
+  async function importarArquivo(arquivo){
+    try{
+      var texto = await arquivo.text();
+      abrirModalImportar(interpretarBackup(texto), arquivo.name);
+    }catch(err){
+      mostrarToast("Importação cancelada: " + err.message, "erro");
+    }
   }
 
   var NIVEL_LABEL = { low: "Risco baixo", mid: "Risco médio", high: "Risco alto" };
@@ -1022,6 +1176,16 @@
 
   document.getElementById("btn-new-student").addEventListener("click", abrirModalNovoAluno);
   document.getElementById("btn-empty-new").addEventListener("click", abrirModalNovoAluno);
+  document.getElementById("btn-exportar").addEventListener("click", exportarDados);
+  document.getElementById("btn-importar").addEventListener("click", function(){
+    document.getElementById("input-importar").click();
+  });
+  document.getElementById("input-importar").addEventListener("change", function(e){
+    var arquivo = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if(arquivo) importarArquivo(arquivo);
+  });
+  document.getElementById("api-badge").addEventListener("click", reverificarApi);
 
   document.getElementById("btn-back").addEventListener("click", function(){
     fecharDetalhe();
@@ -1100,7 +1264,8 @@
   preencherFiltros();
   state.loaded = true;
   renderLista();
-  atualizarLote();
+  renderBadgeApi();
+  verificarSaudeApi().then(function(){ atualizarLote(); });
 
   // Gancho de teste: só existe se a página definir window.__EXPOR_TESTE__ antes de carregar.
   if(window.__EXPOR_TESTE__){
@@ -1110,6 +1275,16 @@
       preverRisco: preverRisco,
       converterCodigoUciParaIndice: converterCodigoUciParaIndice,
       CAMPOS_PREDICAO: CAMPOS_PREDICAO,
+      converterRespostaApi: converterRespostaApi,
+      chamarApi: chamarApi,
+      migrarAluno: migrarAluno,
+      alunosService: alunosService,
+      gerarAlunosExemplo: gerarAlunosExemplo,
+      VERSAO_DADOS: VERSAO_DADOS,
+      verificarSaudeApi: verificarSaudeApi,
+      interpretarBackup: interpretarBackup,
+      combinarAlunos: combinarAlunos,
+      montarBackup: montarBackup,
       state: state
     };
   }

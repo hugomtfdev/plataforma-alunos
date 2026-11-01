@@ -17,7 +17,13 @@
         <span class="brand-eyebrow">Secretaria escolar</span>
         <h1 class="brand-title">Registro de Alunos</h1>
       </div>
-      <button class="btn btn-primary" id="btn-new-student">+ Matricular aluno</button>
+      <div class="masthead-actions">
+        <button type="button" class="api-badge desconhecido" id="api-badge">API: não verificada</button>
+        <button type="button" class="btn btn-secondary" id="btn-exportar">Exportar dados</button>
+        <button type="button" class="btn btn-secondary" id="btn-importar">Importar dados</button>
+        <input type="file" id="input-importar" accept="application/json,.json" hidden />
+        <button class="btn btn-primary" id="btn-new-student">+ Matricular aluno</button>
+      </div>
     </div>
   </header>
 

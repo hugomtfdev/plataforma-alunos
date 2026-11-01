@@ -21,6 +21,8 @@ Protótipo de front-end para secretaria escolar (cadastro e acompanhamento de al
 - Ficha individual detalhada com exibição da probabilidade de evasão, classificação de risco e aviso de responsabilidade do modelo.
 - Previsão em lote (`batch`) para a listagem com cache em memória (chave: ID + hash dos atributos).
 - Exclusão de cadastros.
+- Indicador de status da API no cabeçalho (`GET /health`: online, offline ou modelo não carregado); clique para verificar novamente.
+- Backup: **Exportar dados** (JSON) e **Importar dados** com validação completa e escolha entre mesclar (por id) ou substituir.
 
 ## Como executar
 
@@ -118,7 +120,8 @@ O modelo de inferência exige **34 atributos** em formato `snake_case` (tipos `i
 Para navegar entre versões estáveis do projeto registradas no histórico:
 
 - **`v1-prototipo`**: primeira versão funcional da interface com mock de dados, ordenação e filtros no dashboard, sem integração com a API.
-- **`v2-integracao-api`**: versão atual com integração à API FastAPI (`/predict` e `/predict/batch`), catálogos completos da UCI, formulário de 34 campos e tratamento de erros.
+- **`v2-integracao-api`**: integração com a API FastAPI (`/predict` e `/predict/batch`), catálogos completos da UCI, formulário de 34 campos e tratamento de erros.
+- **`v3-qualidade`**: versão atual com indicador de status da API no cabeçalho (health-check em `/health`), exportação e importação de backups JSON com validação estrita, e suíte de testes de regressão local.
 
 ### Como restaurar ou inspecionar uma tag
 

@@ -549,3 +549,12 @@
   .visually-hidden{
     position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap;
   }
+
+/* ---------- Ações do cabeçalho e indicador da API ---------- */
+.masthead-actions{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.api-badge{ font:inherit; font-size:12px; font-weight:600; padding:6px 12px; border-radius:999px; border:1px solid currentColor; background:transparent; cursor:pointer; }
+.api-badge::before{ content:"●"; margin-right:6px; }
+.api-badge.online{ color:#1a7f37; background:#e6f4ea; }
+.api-badge.offline{ color:var(--risk-high); background:var(--risk-high-bg); }
+.api-badge.modelo{ color:#8a5a00; background:#fff4d6; }
+.api-badge.desconhecido, .api-badge.verificando{ color:var(--ink-soft); background:var(--paper-muted); }

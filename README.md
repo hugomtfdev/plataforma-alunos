@@ -15,14 +15,15 @@ Protótipo de front-end para secretaria escolar (cadastro e acompanhamento de al
 ## Funcionalidades
 
 - Listagem de alunos ativos com contadores no dashboard e busca em tempo real por nome ou curso.
-- Filtros combinados por nível de risco, turno e curso.
-- Matrícula simplificada e edição completa de dados pessoais, acadêmicos e preditivos.
+- Filtros combinados por nível de risco, turno e curso (dinâmicos, exibindo apenas cursos ativos e com contagem de alunos).
+- Matrícula simplificada (com seleção de turno) e edição completa de dados pessoais, acadêmicos e preditivos.
 - Formulário de predição estruturado em blocos temáticos com botões de exemplo baseados em dados reais.
 - Ficha individual detalhada com exibição da probabilidade de evasão, classificação de risco e aviso de responsabilidade do modelo.
 - Previsão em lote (`batch`) para a listagem com cache em memória (chave: ID + hash dos atributos).
 - Exclusão de cadastros.
 - Indicador de status da API no cabeçalho (`GET /health`: online, offline ou modelo não carregado); clique para verificar novamente.
 - Backup: **Exportar dados** (JSON) e **Importar dados** com validação completa e escolha entre mesclar (por id) ou substituir.
+- **Indicadores macroeconômicos globais:** painel único no cabeçalho para configurar desemprego, inflação e PIB (válidos para todos os alunos), com aviso não bloqueante quando os valores saem da faixa observada no treino do modelo.
 
 ## Como executar
 
@@ -79,7 +80,7 @@ Para apontar para uma API rodando em outra máquina na rede ou em servidor remot
 
 O modelo de inferência exige **34 atributos** em formato `snake_case` (tipos `int` e `float`).
 
-- **Definição do esquema:** no array **`CAMPOS_PREDICAO`** em [`script.js`](script.js). Cada entrada centraliza metadados (chave, rótulo, tipo, limites min/max, catálogo e agrupamento) e alimenta a renderização do formulário, a validação de completude e a montagem do JSON.
+- **Definição do esquema:** no array **`CAMPOS_PREDICAO`** em [`script.js`](script.js). Cada entrada centraliza metadados (chave, rótulo, tipo, limites min/max, catálogo e agrupamento) e alimenta a renderização do formulário, a validação de completude e a montagem do JSON. Os 3 campos macroeconômicos (`unemployment_rate`, `inflation_rate`, `gdp`) são marcados com `global: true` e lidos da configuração global (`state.macro`, chave `config-macro` no `localStorage`).
 - **Montagem do payload:** na função **`montarPayload(aluno)`** em [`script.js`](script.js).
 - **Obrigatoriedade:** embora a API FastAPI defina valores padrão e responda `HTTP 200` mesmo com corpo vazio `{}` ou incompleto, o front-end trata **todos os 34 campos como estritamente obrigatórios**. Se qualquer campo faltar, a requisição é bloqueada para impedir predições fictícias decorrentes de defaults silenciosos.
 
@@ -106,6 +107,8 @@ O modelo de inferência exige **34 atributos** em formato `snake_case` (tipos `i
      - `"Alto Risco de Evasão"` (>= 70%) → classe visual `high` ("Risco alto").
 4. **Ausência de fallback local:**
    - Não há estimativa de risco calculada no cliente. Caso a API esteja inacessível ou falhe, o sistema exibe "Predição indisponível", garantindo que nenhuma métrica enganosa seja apresentada ao usuário.
+5. **Indicadores macroeconômicos como configuração global:**
+   - *Motivo:* no dataset de treino (4.424 linhas), existem apenas 10 combinações distintas de `unemployment_rate`, `inflation_rate` e `gdp`, refletindo o período econômico e não características individuais. Por isso, esses 3 campos saíram do cadastro por aluno e passaram para o painel global **Indicadores macro** no cabeçalho (`localStorage` em `config-macro`, iniciando vazio para não aplicar padrões silenciosos). O painel alerta (sem bloquear) quando os valores informados extrapolam as faixas vistas no treinamento.
 
 ## Limitações e pendências conhecidas
 
@@ -113,7 +116,7 @@ O modelo de inferência exige **34 atributos** em formato `snake_case` (tipos `i
 - **Sem autenticação:** a plataforma não possui login ou controle de permissões de acesso.
 - **Dependência temporal dos dados:** o modelo exige notas e métricas do 1º e 2º semestres letivos, impossibilitando predições reais no ato imediato da matrícula.
 - **Ausência de suíte de testes no repositório:** as validações foram executadas via scripts auxiliares pontuais; o repositório não inclui testes unitários ou de integração integrados a pipeline.
-- **Origem dos dados macroeconômicos:** taxas de desemprego, inflação e PIB dependem de inserção manual na interface ou de botões de demonstração.
+- **Origem e faixa dos dados macroeconômicos:** taxas de desemprego, inflação e PIB são configuradas manualmente no painel global **Indicadores macro** (ou preenchidas com uma das 10 combinações reais do dataset). Valores fora das faixas observadas no treino (`7,6–16,2%`, `−0,8–3,7%`, `−4,06–3,51%`) representam extrapolação para o modelo.
 
 ## Histórico e controle de versões (Git Tags)
 
@@ -121,7 +124,8 @@ Para navegar entre versões estáveis do projeto registradas no histórico:
 
 - **`v1-prototipo`**: primeira versão funcional da interface com mock de dados, ordenação e filtros no dashboard, sem integração com a API.
 - **`v2-integracao-api`**: integração com a API FastAPI (`/predict` e `/predict/batch`), catálogos completos da UCI, formulário de 34 campos e tratamento de erros.
-- **`v3-qualidade`**: versão atual com indicador de status da API no cabeçalho (health-check em `/health`), exportação e importação de backups JSON com validação estrita, e suíte de testes de regressão local.
+- **`v3-qualidade`**: indicador de status da API no cabeçalho (health-check em `/health`), exportação e importação de backups JSON com validação estrita, e suíte de testes de regressão local.
+- **`v4-macro-e-filtros`**: versão atual com indicadores macroeconômicos como configuração global (desemprego, inflação, PIB), filtros dinâmicos de curso e turno com contagem de alunos matriculados e inclusão do turno na matrícula rápida.
 
 ### Como restaurar ou inspecionar uma tag
 

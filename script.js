@@ -7,7 +7,7 @@
   // (ex.: "http://192.168.0.10:8000") e inicie a API com --host 0.0.0.0.
   var API_BASE_URL = "http://127.0.0.1:8000";
   var API_TIMEOUT_MS = 20000;
-  var VERSAO_DADOS = 4;
+  var VERSAO_DADOS = 5;
   var LEGENDA_MODELO = "Predição do modelo (Regressão Logística, acurácia 86,67%) — estimativa estatística, não certeza.";
 
   var CURSOS_DISPONIVEIS = CATALOGOS.course.map(function(curso){
@@ -70,9 +70,9 @@
   });
 
   CAMPOS_PREDICAO.push(
-    definirCampo("unemployment_rate", "Taxa de desemprego (%)", "decimal", "Macroeconômicos", { min: 0, max: 30 }),
-    definirCampo("inflation_rate", "Taxa de inflação (%)", "decimal", "Macroeconômicos", { min: -5, max: 15 }),
-    definirCampo("gdp", "Variação do PIB (%)", "decimal", "Macroeconômicos", { min: -15, max: 15 })
+    definirCampo("unemployment_rate", "Taxa de desemprego (%)", "decimal", "Macroeconômicos", { min: 0, max: 30, global: true }),
+    definirCampo("inflation_rate", "Taxa de inflação (%)", "decimal", "Macroeconômicos", { min: -5, max: 15, global: true }),
+    definirCampo("gdp", "Variação do PIB (%)", "decimal", "Macroeconômicos", { min: -15, max: 15, global: true })
   );
 
   var STORAGE_KEY = "alunos-data";
@@ -80,6 +80,7 @@
     alunos: [], loaded: false, query: "", risco: "", turno: "", curso: "", ordenacao: { campo: null, direcao: "asc" },
     predicoes: {},
     api: { status: "desconhecido", detalhe: null },
+    macro: null,
     lote: { status: "ocioso", erro: null, seq: 0 },
     detalhe: null
   };
@@ -104,6 +105,60 @@
     }
   };
 
+  /* ---------------- indicadores macroeconômicos (configuração global) ---------------- */
+
+  // Desemprego, inflação e PIB são indicadores do período, iguais para todos os alunos:
+  // ficam numa configuração única (não por aluno) e entram no payload via valorDoCampo().
+  var MACRO_KEY = "config-macro";
+  var CAMPOS_MACRO = ["unemployment_rate", "inflation_rate", "gdp"];
+  // Faixas observadas no dataset de treino; fora delas a predição é uma extrapolação.
+  var FAIXA_TREINO = { unemployment_rate: [7.6, 16.2], inflation_rate: [-0.8, 3.7], gdp: [-4.06, 3.51] };
+
+  function campoMacro(chave){
+    return CAMPOS_PREDICAO.filter(function(c){ return c.chave === chave; })[0];
+  }
+
+  // Devolve a configuração normalizada ({3 chaves}) ou null se faltar/estiver inválido algum valor.
+  function validarMacro(config){
+    if(!config || typeof config !== "object") return null;
+    var limpo = {};
+    for(var i = 0; i < CAMPOS_MACRO.length; i++){
+      var chave = CAMPOS_MACRO[i];
+      if(!valorValido(campoMacro(chave), config[chave])) return null;
+      limpo[chave] = config[chave];
+    }
+    return limpo;
+  }
+
+  function formatarNumeroBR(n){ return String(n).replace(".", ","); }
+
+  function avisosFaixaMacro(config){
+    var avisos = [];
+    CAMPOS_MACRO.forEach(function(chave){
+      var v = config ? config[chave] : null;
+      var faixa = FAIXA_TREINO[chave];
+      if(typeof v === "number" && isFinite(v) && (v < faixa[0] || v > faixa[1])){
+        avisos.push(campoMacro(chave).rotulo + ": " + formatarNumeroBR(v) + " está fora da faixa vista no treino (" +
+          formatarNumeroBR(faixa[0]) + " a " + formatarNumeroBR(faixa[1]) + ").");
+      }
+    });
+    return avisos;
+  }
+
+  var macroService = {
+    carregar: function(){
+      try{
+        var raw = localStorage.getItem(MACRO_KEY);
+        return raw ? validarMacro(JSON.parse(raw)) : null;
+      }catch(err){
+        return null;
+      }
+    },
+    salvar: function(config){
+      localStorage.setItem(MACRO_KEY, JSON.stringify(config));
+      return true;
+    }
+  };
   /* ---------------- utilidades ---------------- */
 
   function gerarId(){
@@ -142,11 +197,19 @@
     aluno = aluno || {};
     var cursoSelecionado = Number(aluno.cursoCodigo) || "";
     var cursoOptions = opcoesCurso(cursoSelecionado, aluno.curso);
+    var campoTurno = "";
+    if(prefixo === "f"){
+      var turnoOptions = '<option value="">Selecione o turno</option>' + TURNOS_DISPONIVEIS.map(function(t){
+        return '<option value="' + escapeHtml(t) + '"' + (aluno.turno === t ? ' selected' : '') + '>' + escapeHtml(t) + '</option>';
+      }).join("");
+      campoTurno = '<div class="field"><label for="' + prefixo + '-turno">Turno</label><select id="' + prefixo + '-turno" required>' + turnoOptions + '</select></div>';
+    }
 
     return '<fieldset class="form-section">' +
       '<legend>Dados de matrícula</legend>' +
       '<div class="form-grid">' +
         '<div class="field"><label for="' + prefixo + '-curso">Curso</label><select id="' + prefixo + '-curso" required>' + cursoOptions + '</select><span class="field-hint">Catálogo do modelo (rótulo + código UCI).</span></div>' +
+        campoTurno +
         '<div class="field"><label for="' + prefixo + '-data">Data de matrícula</label><input id="' + prefixo + '-data" type="date" value="' + escapeHtml(aluno.dataMatricula || hojeISO()) + '" required /></div>' +
       '</div>' +
     '</fieldset>';
@@ -193,7 +256,10 @@
   /* ---------------- dados para predição: formulário ---------------- */
 
   function valorDoCampo(aluno, campo){
-    var valor = campo.chave === "course" ? aluno.cursoCodigo : (aluno.dadosPredicao || {})[campo.chave];
+    var valor;
+    if(campo.chave === "course") valor = aluno.cursoCodigo;
+    else if(campo.global) valor = state.macro ? state.macro[campo.chave] : null;
+    else valor = (aluno.dadosPredicao || {})[campo.chave];
     return valor == null || valor === "" ? null : valor;
   }
 
@@ -213,7 +279,8 @@
 
   function renderCamposPredicao(prefixo, aluno){
     var blocos = GRUPOS_PREDICAO.map(function(grupo){
-      var campos = CAMPOS_PREDICAO.filter(function(c){ return c.grupo === grupo && !c.cadastro; });
+      var campos = CAMPOS_PREDICAO.filter(function(c){ return c.grupo === grupo && !c.cadastro && !c.global; });
+      if(!campos.length) return "";
       return '<div class="predict-group"><h4>' + escapeHtml(grupo) + '</h4><div class="form-grid">' +
         campos.map(function(c){ return renderCampoPredicao(prefixo, c, aluno); }).join("") +
       '</div></div>';
@@ -234,7 +301,7 @@
   function lerFormularioPredicao(prefixo){
     var dados = {};
     CAMPOS_PREDICAO.forEach(function(campo){
-      if(campo.cadastro) return;
+      if(campo.cadastro || campo.global) return;
       var valor = document.getElementById(prefixo + "-p-" + campo.chave).value;
       dados[campo.chave] = valor === "" ? null : Number(valor);
     });
@@ -245,6 +312,7 @@
     var perfil = PERFIS_EXEMPLO[chavePerfil];
     if(!perfil) return;
     CAMPOS_PREDICAO.forEach(function(campo){
+      if(campo.global) return;
       var el = document.getElementById(campo.cadastro ? prefixo + "-curso" : prefixo + "-p-" + campo.chave);
       if(el) el.value = String(perfil.dados[campo.chave]);
     });
@@ -461,6 +529,105 @@
     atualizarDetalheAberto();
   }
 
+  /* ---------------- painel: indicadores macroeconômicos ---------------- */
+
+  function textoMacro(){
+    if(!state.macro) return "não configurados";
+    return "desemprego " + formatarNumeroBR(state.macro.unemployment_rate) + "% · inflação " +
+      formatarNumeroBR(state.macro.inflation_rate) + "% · PIB " + formatarNumeroBR(state.macro.gdp) + "%";
+  }
+
+  function renderMacroAviso(){
+    var el = document.getElementById("macro-aviso");
+    if(!el) return;
+    if(state.macro){
+      el.hidden = true;
+      el.innerHTML = "";
+      return;
+    }
+    el.hidden = false;
+    el.innerHTML = '<strong>Indicadores macroeconômicos não configurados.</strong> Sem eles não há predição para nenhum aluno. ' +
+      '<button type="button" class="btn-link js-abrir-macro">Configurar agora</button>';
+  }
+
+  function abrirModalMacro(){
+    var atual = state.macro || {};
+    var campos = CAMPOS_PREDICAO.filter(function(c){ return c.global; });
+    var inputs = campos.map(function(c){
+      var faixa = FAIXA_TREINO[c.chave];
+      return '<div class="field"><label for="m-' + c.chave + '">' + escapeHtml(c.rotulo) + '</label>' +
+        '<input id="m-' + c.chave + '" type="number" step="any" min="' + c.min + '" max="' + c.max + '" value="' +
+        (atual[c.chave] == null ? "" : atual[c.chave]) + '" required />' +
+        '<span class="field-hint">Faixa vista no treino: ' + formatarNumeroBR(faixa[0]) + ' a ' + formatarNumeroBR(faixa[1]) + '</span></div>';
+    }).join("");
+    var exemplos = '<option value="">Escolher…</option>' + MACRO_EXEMPLOS.map(function(e, i){
+      return '<option value="' + i + '">Desemprego ' + formatarNumeroBR(e.unemployment_rate) + '% · Inflação ' +
+        formatarNumeroBR(e.inflation_rate) + '% · PIB ' + formatarNumeroBR(e.gdp) + '%</option>';
+    }).join("");
+
+    abrirModal(
+      '<h2 id="modal-title">Indicadores macroeconômicos</h2>' +
+      '<p class="modal-sub">Valem para <strong>todos</strong> os alunos: são indicadores do período, não dados individuais. ' +
+      'O modelo foi treinado com valores em faixas específicas; fora delas a predição é uma extrapolação.</p>' +
+      '<form id="form-macro">' +
+        '<div class="form-grid single">' + inputs + '</div>' +
+        '<div class="field macro-exemplo"><label for="m-exemplo">Carregar exemplo real do dataset de treino</label><select id="m-exemplo">' + exemplos + '</select></div>' +
+        '<div class="macro-alerta" id="macro-alerta" role="status" hidden></div>' +
+        '<div class="form-actions">' +
+          '<button type="button" class="btn btn-secondary" id="btn-cancelar-modal">Cancelar</button>' +
+          '<button type="submit" class="btn btn-primary">Salvar</button>' +
+        '</div>' +
+      '</form>'
+    );
+
+    function lerCampos(){
+      var valores = {};
+      CAMPOS_MACRO.forEach(function(chave){
+        var v = document.getElementById("m-" + chave).value;
+        valores[chave] = v === "" ? null : Number(v);
+      });
+      return valores;
+    }
+    function atualizarAlerta(){
+      var avisos = avisosFaixaMacro(lerCampos());
+      var el = document.getElementById("macro-alerta");
+      el.hidden = !avisos.length;
+      el.innerHTML = avisos.length ? '<strong>Atenção (não impede salvar):</strong><br>' + avisos.map(escapeHtml).join("<br>") : "";
+    }
+
+    document.getElementById("btn-cancelar-modal").addEventListener("click", fecharModal);
+    CAMPOS_MACRO.forEach(function(chave){
+      document.getElementById("m-" + chave).addEventListener("input", atualizarAlerta);
+    });
+    document.getElementById("m-exemplo").addEventListener("change", function(e){
+      var exemplo = MACRO_EXEMPLOS[Number(e.target.value)];
+      if(!exemplo) return;
+      CAMPOS_MACRO.forEach(function(chave){ document.getElementById("m-" + chave).value = exemplo[chave]; });
+      atualizarAlerta();
+    });
+    atualizarAlerta();
+
+    document.getElementById("form-macro").addEventListener("submit", function(e){
+      e.preventDefault();
+      var config = validarMacro(lerCampos());
+      if(!config){
+        mostrarToast("Preencha os três indicadores com valores válidos.", "erro");
+        return;
+      }
+      try{
+        macroService.salvar(config);
+      }catch(err){
+        mostrarToast("Não foi possível salvar os indicadores.", "erro");
+        return;
+      }
+      state.macro = config;
+      fecharModal();
+      mostrarToast("Indicadores macroeconômicos salvos.");
+      renderLista();
+      atualizarDetalheAberto();
+      atualizarLote();
+    });
+  }
   /* ---------------- saúde da API (health-check) ---------------- */
 
   var API_HEALTH_TIMEOUT_MS = 5000;
@@ -515,7 +682,7 @@
   /* ---------------- backup: exportar e importar ---------------- */
 
   function montarBackup(){
-    return { versaoDados: VERSAO_DADOS, exportadoEm: new Date().toISOString(), alunos: state.alunos };
+    return { versaoDados: VERSAO_DADOS, exportadoEm: new Date().toISOString(), configMacro: state.macro, alunos: state.alunos };
   }
 
   function exportarDados(){
@@ -571,12 +738,26 @@
     return resultado;
   }
 
-  function aplicarImportacao(importados, modo){
+  // Configuração macro do backup (ou null se ausente/inválida).
+  function extrairMacroBackup(texto){
+    try{
+      var dados = JSON.parse(texto);
+      return dados && !Array.isArray(dados) ? validarMacro(dados.configMacro) : null;
+    }catch(err){
+      return null;
+    }
+  }
+
+  function aplicarImportacao(importados, modo, macro){
     var anteriores = state.alunos;
     state.alunos = combinarAlunos(anteriores, importados, modo);
     if(!salvarDados()){
       state.alunos = anteriores;
       return false;
+    }
+    // Os indicadores do backup só valem em "substituir" ou quando ainda não há configuração.
+    if(macro && (modo === "substituir" || !state.macro)){
+      try{ macroService.salvar(macro); state.macro = macro; }catch(err){ mostrarToast("Alunos importados, mas os indicadores macro não puderam ser salvos.", "erro"); }
     }
     state.predicoes = {};
     fecharModal();
@@ -587,7 +768,7 @@
     return true;
   }
 
-  function abrirModalImportar(importados, nomeArquivo){
+  function abrirModalImportar(importados, nomeArquivo, macro){
     abrirModal(
       '<h2 id="modal-title">Importar dados</h2>' +
       '<p class="modal-sub">O arquivo <strong>' + escapeHtml(nomeArquivo) + '</strong> contém <strong>' + importados.length +
@@ -601,14 +782,14 @@
       '</div>'
     );
     document.getElementById("btn-cancelar-modal").addEventListener("click", fecharModal);
-    document.getElementById("btn-importar-mesclar").addEventListener("click", function(){ aplicarImportacao(importados, "mesclar"); });
-    document.getElementById("btn-importar-substituir").addEventListener("click", function(){ aplicarImportacao(importados, "substituir"); });
+    document.getElementById("btn-importar-mesclar").addEventListener("click", function(){ aplicarImportacao(importados, "mesclar", macro); });
+    document.getElementById("btn-importar-substituir").addEventListener("click", function(){ aplicarImportacao(importados, "substituir", macro); });
   }
 
   async function importarArquivo(arquivo){
     try{
       var texto = await arquivo.text();
-      abrirModalImportar(interpretarBackup(texto), arquivo.name);
+      abrirModalImportar(interpretarBackup(texto), arquivo.name, extrairMacroBackup(texto));
     }catch(err){
       mostrarToast("Importação cancelada: " + err.message, "erro");
     }
@@ -619,6 +800,12 @@
   /* ---------------- armazenamento ---------------- */
 
   function migrarAluno(aluno){
+    // v4 -> v5: os indicadores macro deixaram de ser por aluno (agora são globais).
+    if(aluno.versaoDados === 4 && aluno.dadosPredicao && typeof aluno.dadosPredicao === "object"){
+      CAMPOS_MACRO.forEach(function(chave){ delete aluno.dadosPredicao[chave]; });
+      aluno.versaoDados = VERSAO_DADOS;
+      return aluno;
+    }
     if(aluno.versaoDados === VERSAO_DADOS && aluno.dadosPredicao && typeof aluno.dadosPredicao === "object") return aluno;
 
     function numero(v){ return typeof v === "number" && isFinite(v) ? v : null; }
@@ -655,9 +842,15 @@
   }
 
   function sincronizarTurno(aluno){
-    var codigo = (aluno.dadosPredicao || {}).daytime_evening_attendance;
+    var cursoCatalogo = cursoPorCodigo(aluno.cursoCodigo);
+    if(cursoCatalogo) aluno.curso = cursoCatalogo.nome;
+
+    var dados = aluno.dadosPredicao || (aluno.dadosPredicao = {});
+    var codigo = dados.daytime_evening_attendance;
     if(codigo === 1) aluno.turno = "Diurno";
     else if(codigo === 0) aluno.turno = "Noturno";
+    else if(aluno.turno === "Diurno") dados.daytime_evening_attendance = 1;
+    else if(aluno.turno === "Noturno") dados.daytime_evening_attendance = 0;
     else aluno.turno = aluno.turno || "";
   }
 
@@ -700,6 +893,7 @@
       dados = Object.assign({}, PERFIS_EXEMPLO[chavePerfil].dados);
       codigoCurso = dados.course;
       delete dados.course;
+      CAMPOS_MACRO.forEach(function(chave){ delete dados[chave]; });
     }else{
       codigoCurso = 9147;
     }
@@ -822,18 +1016,49 @@
   function preencherFiltros(){
     var filtroTurno = document.getElementById("filtro-turno");
     var filtroCurso = document.getElementById("filtro-curso");
-    var turnosSalvos = state.alunos.map(function(aluno){ return aluno.turno; }).filter(Boolean);
+    var ativos = state.alunos.filter(function(a){ return a.status === "ativo"; });
+
+    var contagemTurno = {};
+    var temSemTurno = false;
+    ativos.forEach(function(a){
+      if(a.turno){
+        contagemTurno[a.turno] = (contagemTurno[a.turno] || 0) + 1;
+      }else{
+        temSemTurno = true;
+        contagemTurno["Não informado"] = (contagemTurno["Não informado"] || 0) + 1;
+      }
+    });
     var turnos = TURNOS_DISPONIVEIS.slice();
-    turnosSalvos.forEach(function(turno){ if(turnos.indexOf(turno) === -1) turnos.push(turno); });
+    Object.keys(contagemTurno).forEach(function(t){
+      if(t !== "Não informado" && turnos.indexOf(t) === -1) turnos.push(t);
+    });
+    if(temSemTurno) turnos.push("Não informado");
+    if(state.turno && turnos.indexOf(state.turno) === -1) state.turno = "";
+
     filtroTurno.innerHTML = '<option value="">Todos</option>' +
-      '<option value="Não informado">Não informado</option>' +
-      turnos.map(function(turno){ return '<option value="' + escapeHtml(turno) + '">' + escapeHtml(turno) + '</option>'; }).join("");
-    var cursosSalvos = state.alunos.map(function(aluno){ return aluno.curso; }).filter(Boolean);
-    var cursos = CURSOS_DISPONIVEIS.map(function(curso){ return curso.nome; });
-    cursosSalvos.forEach(function(curso){ if(cursos.indexOf(curso) === -1) cursos.push(curso); });
-    filtroCurso.innerHTML = '<option value="">Todos</option>' + cursos.map(function(curso){
-      return '<option value="' + escapeHtml(curso) + '">' + escapeHtml(curso) + '</option>';
-    }).join("");
+      turnos.map(function(turno){
+        var qtd = contagemTurno[turno] || 0;
+        var rotulo = escapeHtml(turno) + (ativos.length ? " (" + qtd + ")" : "");
+        return '<option value="' + escapeHtml(turno) + '"' + (state.turno === turno ? ' selected' : '') + '>' + rotulo + '</option>';
+      }).join("");
+    filtroTurno.value = state.turno;
+
+    // Lista apenas os cursos que possuem alunos ativos matriculados, em ordem alfabética.
+    var contagemCurso = {};
+    ativos.forEach(function(a){
+      if(a.curso) contagemCurso[a.curso] = (contagemCurso[a.curso] || 0) + 1;
+    });
+    var cursos = Object.keys(contagemCurso).sort(function(a, b){
+      return normalizarTexto(a).localeCompare(normalizarTexto(b));
+    });
+    if(state.curso && cursos.indexOf(state.curso) === -1) state.curso = "";
+
+    filtroCurso.innerHTML = '<option value="">Todos</option>' +
+      cursos.map(function(curso){
+        var rotulo = escapeHtml(curso) + " (" + contagemCurso[curso] + ")";
+        return '<option value="' + escapeHtml(curso) + '"' + (state.curso === curso ? ' selected' : '') + '>' + rotulo + '</option>';
+      }).join("");
+    filtroCurso.value = state.curso;
   }
 
   function renderPillRisco(aluno){
@@ -852,7 +1077,9 @@
   }
 
   function renderLista(){
+    preencherFiltros();
     renderStatusApi();
+    renderMacroAviso();
     renderStats();
 
     var tbody = document.getElementById("students-tbody");
@@ -936,6 +1163,7 @@
     return GRUPOS_PREDICAO.map(function(grupo){
       var campos = faltantes.filter(function(c){ return c.grupo === grupo; });
       if(!campos.length) return "";
+      if(grupo === "Macroeconômicos") return '<li><strong>Macroeconômicos:</strong> configure em <em>Indicadores macro</em> (cabeçalho); valem para todos os alunos.</li>';
       return '<li><strong>' + escapeHtml(grupo) + ':</strong> ' + campos.map(function(c){ return escapeHtml(c.rotulo); }).join("; ") + '</li>';
     }).join("");
   }
@@ -987,6 +1215,7 @@
           '<p class="profile-meta">Idade na matrícula: <strong>' + (dados.age_at_enrollment == null ? "—" : dados.age_at_enrollment) + '</strong></p>' +
           '<p class="profile-meta">Código do curso (UCI): <strong>' + (aluno.cursoCodigo == null ? "—" : aluno.cursoCodigo) + '</strong></p>' +
           '<p class="profile-meta">Dados para predição: <strong>' + preenchidos + ' de ' + CAMPOS_PREDICAO.length + '</strong> campos preenchidos</p>' +
+          '<p class="profile-meta">Indicadores macroeconômicos (globais): <strong>' + escapeHtml(textoMacro()) + '</strong></p>' +
               '<div class="academic-summary"><h3>Acompanhamento acadêmico</h3>' +
                 '<p>Frequência <strong>' + (aluno.frequencia == null ? "Pendente" : Number(aluno.frequencia).toFixed(1).replace(".", ",") + "%") + '</strong></p>' +
                 '<p>Média <strong>' + (aluno.media == null ? "Pendente" : Number(aluno.media).toFixed(1).replace(".", ",") + " / 10") + '</strong></p>' +
@@ -1075,7 +1304,7 @@
         cursoCodigo: ingresso.cursoCodigo,
         curso: ingresso.curso,
         dataMatricula: ingresso.dataMatricula,
-        turno: "",
+        turno: document.getElementById("f-turno").value,
         frequencia: null,
         media: null,
         disciplinasReprovadas: null,
@@ -1083,6 +1312,7 @@
         versaoDados: VERSAO_DADOS,
         status: "ativo"
       };
+      sincronizarTurno(novo);
       state.alunos.push(novo);
       if(!salvarDados()){
         state.alunos.pop();
@@ -1186,6 +1416,7 @@
     if(arquivo) importarArquivo(arquivo);
   });
   document.getElementById("api-badge").addEventListener("click", reverificarApi);
+  document.getElementById("btn-macro").addEventListener("click", abrirModalMacro);
 
   document.getElementById("btn-back").addEventListener("click", function(){
     fecharDetalhe();
@@ -1256,10 +1487,13 @@
     if(exemplo){ preencherPerfilExemplo(exemplo.getAttribute("data-prefixo"), exemplo.getAttribute("data-perfil")); return; }
 
     if(e.target.closest(".js-tentar-lote")){ atualizarLote(); return; }
+
+    if(e.target.closest(".js-abrir-macro")){ abrirModalMacro(); return; }
   });
 
   /* ---------------- inicialização ---------------- */
 
+  state.macro = macroService.carregar();
   carregarDados();
   preencherFiltros();
   state.loaded = true;
@@ -1282,6 +1516,12 @@
       gerarAlunosExemplo: gerarAlunosExemplo,
       VERSAO_DADOS: VERSAO_DADOS,
       verificarSaudeApi: verificarSaudeApi,
+      macroService: macroService,
+      validarMacro: validarMacro,
+      avisosFaixaMacro: avisosFaixaMacro,
+      extrairMacroBackup: extrairMacroBackup,
+      valorDoCampo: valorDoCampo,
+      preencherFiltros: preencherFiltros,
       interpretarBackup: interpretarBackup,
       combinarAlunos: combinarAlunos,
       montarBackup: montarBackup,

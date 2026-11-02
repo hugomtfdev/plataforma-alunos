@@ -558,3 +558,8 @@
 .api-badge.offline{ color:var(--risk-high); background:var(--risk-high-bg); }
 .api-badge.modelo{ color:#8a5a00; background:#fff4d6; }
 .api-badge.desconhecido, .api-badge.verificando{ color:var(--ink-soft); background:var(--paper-muted); }
+
+/* ---------- Indicadores macroeconômicos ---------- */
+.macro-aviso{ margin:0 0 16px; padding:10px 14px; border-radius:var(--radius-s); background:#fff4d6; color:#8a5a00; font-size:13px; }
+.macro-exemplo{ margin-top:16px; }
+.macro-alerta{ margin-top:12px; padding:10px 14px; border-radius:var(--radius-s); background:#fff4d6; color:#8a5a00; font-size:13px; }

@@ -384,3 +384,18 @@ var PERFIS_EXEMPLO = {
     }
   }
 };
+
+// As 10 combinações reais de indicadores macroeconômicos presentes no dataset de treino
+// (usadas apenas como exemplo no painel "Indicadores macro").
+var MACRO_EXEMPLOS = [
+  { unemployment_rate: 7.6, inflation_rate: 2.6, gdp: 0.32 },
+  { unemployment_rate: 8.9, inflation_rate: 1.4, gdp: 3.51 },
+  { unemployment_rate: 9.4, inflation_rate: -0.8, gdp: -3.12 },
+  { unemployment_rate: 10.8, inflation_rate: 1.4, gdp: 1.74 },
+  { unemployment_rate: 11.1, inflation_rate: 0.6, gdp: 2.02 },
+  { unemployment_rate: 12.4, inflation_rate: 0.5, gdp: 1.79 },
+  { unemployment_rate: 12.7, inflation_rate: 3.7, gdp: -1.7 },
+  { unemployment_rate: 13.9, inflation_rate: -0.3, gdp: 0.79 },
+  { unemployment_rate: 15.5, inflation_rate: 2.8, gdp: -4.06 },
+  { unemployment_rate: 16.2, inflation_rate: 0.3, gdp: -0.92 }
+];

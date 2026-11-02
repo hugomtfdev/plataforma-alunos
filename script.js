@@ -1114,8 +1114,8 @@
           '<td data-label="Previsão da IA">' + renderPillRisco(a) + '</td>' +
           '<td data-label="Ações">' +
             '<div class="cell-actions">' +
-              '<button class="btn-icon js-editar" data-id="' + a.id + '" title="Editar" aria-label="Editar aluno">✎</button>' +
-              '<button class="btn-icon js-excluir" data-id="' + a.id + '" title="Excluir" aria-label="Excluir aluno">🗑</button>' +
+              '<button class="btn-icon js-editar" data-id="' + a.id + '" title="Editar dados" aria-label="Editar aluno"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>' +
+              '<button class="btn-icon btn-icon-danger js-excluir" data-id="' + a.id + '" title="Excluir aluno" aria-label="Excluir aluno"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>' +
             '</div>' +
           '</td>' +
         '</tr>'
@@ -1186,9 +1186,12 @@
     }
     var previsao = obterPrevisao(aluno);
     if(previsao){
-      return '<div class="prediction-result"><span class="pill ' + previsao.nivel + '">' + escapeHtml(previsao.riskLevel) + '</span>' +
+      var pct = Math.max(0, Math.min(100, Math.round(previsao.probabilidade * 100)));
+      return '<div class="prediction-result">' +
+        '<div class="prediction-head"><span class="pill ' + previsao.nivel + '">' + escapeHtml(previsao.riskLevel) + '</span></div>' +
         '<p class="prediction-percent">' + formatarPercentual(previsao.probabilidade) + '</p>' +
-        '<p>probabilidade de evasão (dropout_probability)</p>' +
+        '<p class="prediction-label">Probabilidade estimada de evasão (dropout_probability)</p>' +
+        '<div class="prob-bar" aria-hidden="true"><div class="prob-bar-fill ' + previsao.nivel + '" style="width:' + pct + '%"></div></div>' +
         '<small>' + LEGENDA_MODELO + '</small>' + botao("Prever novamente", false) + '</div>';
     }
     if(detalhe.erro){
@@ -1208,19 +1211,25 @@
           '<div class="profile-row">' +
             '<div>' +
               '<p class="profile-name">' + escapeHtml(aluno.nome) + '</p>' +
-              '<p class="profile-meta">' + escapeHtml(aluno.curso) + ' &middot; ' + escapeHtml(aluno.turno || "Turno não informado") + ' &middot; matriculado em <strong>' + formatarData(aluno.dataMatricula) + '</strong></p>' +
               '<p class="profile-meta">' + escapeHtml(aluno.email) + '</p>' +
             '</div>' +
           '</div>' +
-          '<p class="profile-meta">Idade na matrícula: <strong>' + (dados.age_at_enrollment == null ? "—" : dados.age_at_enrollment) + '</strong></p>' +
-          '<p class="profile-meta">Código do curso (UCI): <strong>' + (aluno.cursoCodigo == null ? "—" : aluno.cursoCodigo) + '</strong></p>' +
-          '<p class="profile-meta">Dados para predição: <strong>' + preenchidos + ' de ' + CAMPOS_PREDICAO.length + '</strong> campos preenchidos</p>' +
-          '<p class="profile-meta">Indicadores macroeconômicos (globais): <strong>' + escapeHtml(textoMacro()) + '</strong></p>' +
-              '<div class="academic-summary"><h3>Acompanhamento acadêmico</h3>' +
-                '<p>Frequência <strong>' + (aluno.frequencia == null ? "Pendente" : Number(aluno.frequencia).toFixed(1).replace(".", ",") + "%") + '</strong></p>' +
-                '<p>Média <strong>' + (aluno.media == null ? "Pendente" : Number(aluno.media).toFixed(1).replace(".", ",") + " / 10") + '</strong></p>' +
-                '<p>Disciplinas reprovadas <strong>' + (aluno.disciplinasReprovadas == null ? "Pendente" : aluno.disciplinasReprovadas) + '</strong></p>' +
-              '</div>' +
+          '<div class="meta-grid">' +
+            '<div class="meta-item"><span class="meta-label">Curso</span><strong class="meta-value">' + escapeHtml(aluno.curso) + '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">Turno</span><strong class="meta-value">' + escapeHtml(aluno.turno || "Não informado") + '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">Data de matrícula</span><strong class="meta-value">' + formatarData(aluno.dataMatricula) + '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">Idade na matrícula</span><strong class="meta-value">' + (dados.age_at_enrollment == null ? "—" : dados.age_at_enrollment + " anos") + '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">Código do curso (UCI)</span><strong class="meta-value">' + (aluno.cursoCodigo == null ? "—" : aluno.cursoCodigo) + '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">Preenchimento do modelo</span><strong class="meta-value">' + preenchidos + ' de ' + CAMPOS_PREDICAO.length + ' campos</strong></div>' +
+            '<div class="meta-item meta-item-wide"><span class="meta-label">Indicadores macroeconômicos (globais)</span><strong class="meta-value">' + escapeHtml(textoMacro()) + '</strong></div>' +
+          '</div>' +
+          '<div class="academic-summary"><h3>Acompanhamento acadêmico</h3>' +
+            '<div class="academic-grid">' +
+              '<div class="academic-item"><span>Frequência</span><strong>' + (aluno.frequencia == null ? "Pendente" : Number(aluno.frequencia).toFixed(1).replace(".", ",") + "%") + '</strong></div>' +
+              '<div class="academic-item"><span>Média geral</span><strong>' + (aluno.media == null ? "Pendente" : Number(aluno.media).toFixed(1).replace(".", ",") + " / 10") + '</strong></div>' +
+              '<div class="academic-item"><span>Reprovações</span><strong>' + (aluno.disciplinasReprovadas == null ? "Pendente" : aluno.disciplinasReprovadas) + '</strong></div>' +
+            '</div>' +
+          '</div>' +
           '<div class="form-actions" style="justify-content:flex-start; margin-top:24px;">' +
             '<button class="btn btn-secondary js-editar" data-id="' + aluno.id + '">Editar dados</button>' +
             '<button class="btn btn-danger js-excluir" data-id="' + aluno.id + '">Excluir aluno</button>' +
@@ -1296,6 +1305,15 @@
     document.getElementById("btn-cancelar-modal").addEventListener("click", fecharModal);
     document.getElementById("form-novo-aluno").addEventListener("submit", function(e){
       e.preventDefault();
+      var emailDigitado = document.getElementById("f-email").value.trim().toLowerCase();
+      var emailJaCadastrado = state.alunos.some(function(a){
+        return a.status === "ativo" && (a.email || "").trim().toLowerCase() === emailDigitado;
+      });
+      if(emailJaCadastrado){
+        mostrarToast("Já existe um aluno ativo matriculado com este e-mail.", "erro");
+        document.getElementById("f-email").focus();
+        return;
+      }
       var ingresso = lerDadosIngresso("f", null);
       var novo = {
         id: gerarId(),
@@ -1349,6 +1367,15 @@
     document.getElementById("btn-cancelar-modal").addEventListener("click", fecharModal);
     document.getElementById("form-editar-aluno").addEventListener("submit", function(e){
       e.preventDefault();
+      var emailDigitado = document.getElementById("e-email").value.trim().toLowerCase();
+      var emailJaCadastrado = state.alunos.some(function(a){
+        return a.id !== aluno.id && a.status === "ativo" && (a.email || "").trim().toLowerCase() === emailDigitado;
+      });
+      if(emailJaCadastrado){
+        mostrarToast("Este e-mail já pertence a outro aluno matriculado.", "erro");
+        document.getElementById("e-email").focus();
+        return;
+      }
       aluno.nome = document.getElementById("e-nome").value.trim();
       aluno.email = document.getElementById("e-email").value.trim();
       var ingresso = lerDadosIngresso("e", aluno);

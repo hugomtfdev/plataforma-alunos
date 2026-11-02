@@ -1,6 +1,6 @@
-# Plataforma de Gestão de Alunos
+# Gestão & Prevenção de Evasão Estudantil
 
-Protótipo de front-end para secretaria escolar (cadastro e acompanhamento de alunos), integrado localmente com uma API de Machine Learning (FastAPI + Regressão Logística) para predição de risco de evasão estudantil.
+Protótipo de front-end para gestão e acompanhamento de permanência estudantil, integrado localmente com uma API de Machine Learning (FastAPI + Regressão Logística) para predição de risco de evasão.
 
 > **Estado atual:** a interface funciona no navegador, persiste os cadastros no `localStorage` e consome a API de predição via requisições HTTP (`fetch`). Quando a API está offline ou inacessível, o risco é exibido como **Predição indisponível**; não existe cálculo nem estimativa de risco local. A API pertence a outro projeto/equipe e **não faz parte deste repositório**.
 

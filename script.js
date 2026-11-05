@@ -745,7 +745,9 @@
     var headers = montarHeadersApi();
     var tokenLimpo = state.apiConfig && state.apiConfig.token ? limparTokenBearer(state.apiConfig.token) : "";
     var sinal = controlador ? controlador.signal : undefined;
+    var inicioMs = Date.now();
     var resposta;
+    var dados;
     try{
       try{
         resposta = await executarFetchApi(urlAlvo, "POST", headers, corpo, sinal);
@@ -757,10 +759,17 @@
           throw errPrimario;
         }
       }
-      if(resposta && resposta.status === 401 && tokenLimpo && urlAlvo.indexOf("token=") === -1){
+      var duracaoPrimaria = Date.now() - inicioMs;
+      dados = await lerCorpoResposta(resposta);
+      if(resposta && resposta.status === 401 && !dados && duracaoPrimaria >= 3500){
+        dados = {
+          detail: "Seu Token Bearer foi aceito pela API, mas o serviço interno de Machine Learning (56.126.10.158:8000) deu timeout após 5s (o Spring Security converteu o erro interno /error em 401 vazio)"
+        };
+      }else if(resposta && resposta.status === 401 && tokenLimpo && urlAlvo.indexOf("token=") === -1 && (!dados || !dados.message)){
         var urlComQuery = urlAlvo + (urlAlvo.indexOf("?") === -1 ? "?" : "&") + "token=" + encodeURIComponent(tokenLimpo);
         try{
           resposta = await executarFetchApi(urlComQuery, "POST", headers, corpo, sinal);
+          dados = await lerCorpoResposta(resposta);
         }catch(errQuery){}
       }
     }catch(err){
@@ -770,7 +779,6 @@
     }finally{
       clearTimeout(timer);
     }
-    var dados = await lerCorpoResposta(resposta);
     if(!resposta.ok) throw erroApi("http", mensagemHttp(resposta.status, dados));
     state.api = { status: "online", detalhe: "Conectado à API (" + urlAlvo + ")." };
     renderBadgeApi();
@@ -993,30 +1001,50 @@
 
       var corpoTeste = { studentId: "TESTE-CONEXAO", features: featuresTeste };
       try{
-        var resp = await executarFetchApi(urlEfetiva, "POST", headers, corpoTeste);
-        var corpoResp = await lerCorpoResposta(resp);
-        var msgServidor = corpoResp && (corpoResp.message || corpoResp.detail || corpoResp.error || corpoResp.erro)
-          ? String(corpoResp.message || corpoResp.detail || corpoResp.error || corpoResp.erro)
+        // Passo 1: sonda rápida ({}) para validar exclusivamente o Token Bearer na API Java (sem depender do motor Python)
+        var respToken = await executarFetchApi(urlEfetiva, "POST", headers, {});
+        var corpoToken = await lerCorpoResposta(respToken);
+        var msgToken = corpoToken && (corpoToken.message || corpoToken.detail || corpoToken.error || corpoToken.erro)
+          ? String(corpoToken.message || corpoToken.detail || corpoToken.error || corpoToken.erro)
           : "";
-        if(resp.ok){
-          diagBox.className = "api-diag-box ok";
-          diagBox.innerHTML = '<strong>✔ Conexão e Token validados (HTTP ' + resp.status + ')!</strong><br>' +
-            'O endpoint <code>' + escapeHtml(urlEfetiva) + '</code> aceitou o Token Bearer e retornou a predição normalmente.';
-        }else if(resp.status === 401){
+
+        if(respToken.status === 401){
           diagBox.className = "api-diag-box erro";
-          diagBox.innerHTML = '<strong>✖ Token recusado pela API (HTTP 401)</strong><br>' +
-            'A plataforma conectou corretamente em <code>' + escapeHtml(urlEfetiva) + '</code>, mas a API respondeu: ' +
-            '<em>' + escapeHtml(msgServidor || "Token inválido ou não encontrado no banco da API") + '</em>.<br>' +
-            '<strong>O que fazer:</strong> Abra o <em>Kasper AI Studio</em>, gere um novo Token Bearer e cole no campo acima.';
-        }else if(resp.status === 403){
+          diagBox.innerHTML = '<strong>✖ Token Bearer recusado pela API (HTTP 401)</strong><br>' +
+            'A plataforma conectou em <code>' + escapeHtml(urlEfetiva) + '</code>, mas a API respondeu: ' +
+            '<em>' + escapeHtml(msgToken || "Token inválido ou não encontrado no banco da API") + '</em>.<br>' +
+            '<strong>O que fazer:</strong> Gere um novo Token Bearer no <em>Kasper AI Studio</em> e cole acima.';
+        }else if(respToken.status === 403){
           diagBox.className = "api-diag-box erro";
           diagBox.innerHTML = '<strong>✖ Bloqueio de CORS ou permissão (HTTP 403)</strong><br>' +
-            'O servidor respondeu: <em>' + escapeHtml(msgServidor || "Invalid CORS request") + '</em>. ' +
+            'O servidor respondeu: <em>' + escapeHtml(msgToken || "Invalid CORS request") + '</em>. ' +
             'Confirme se o domínio atual está autorizado no CORS da API.';
         }else{
-          diagBox.className = "api-diag-box erro";
-          diagBox.innerHTML = '<strong>✖ A API retornou HTTP ' + resp.status + '</strong><br>' +
-            escapeHtml(msgServidor || "Verifique se o serviço de Machine Learning está ativo.");
+          // Token aceito pela API Java (status 400 "As características do estudante são obrigatórias..." ou 200)
+          diagBox.innerHTML = "✔ Token Bearer aceito pela API! Testando resposta do motor de Machine Learning…";
+          var inicioMl = Date.now();
+          var resp = await executarFetchApi(urlEfetiva, "POST", headers, corpoTeste);
+          var duracaoMl = Date.now() - inicioMl;
+          var corpoResp = await lerCorpoResposta(resp);
+          var msgServidor = corpoResp && (corpoResp.message || corpoResp.detail || corpoResp.error || corpoResp.erro)
+            ? String(corpoResp.message || corpoResp.detail || corpoResp.error || corpoResp.erro)
+            : "";
+          if(resp.ok){
+            diagBox.className = "api-diag-box ok";
+            diagBox.innerHTML = '<strong>✔ Conexão, Token e Motor de ML 100% operacionais (HTTP ' + resp.status + ')!</strong><br>' +
+              'O endpoint <code>' + escapeHtml(urlEfetiva) + '</code> validou o Token Bearer e retornou a predição normalmente.';
+          }else if(resp.status === 401 && !corpoResp){
+            diagBox.className = "api-diag-box erro";
+            diagBox.innerHTML = '<strong>✔ Seu Token Bearer é VÁLIDO e foi aceito pela API Java (<code>52.67.241.122:8080</code>)!</strong><br>' +
+              '<strong>✖ Falha interna no servidor de Machine Learning (<code>56.126.10.158:8000</code>):</strong> ' +
+              'A API Java aceitou sua chave, mas ao consultar o serviço Python de ML ocorreu timeout após ' + (duracaoMl / 1000).toFixed(1) + 's. ' +
+              'Como a rota interna <code>/error</code> do Spring Boot está bloqueada pelo Spring Security, o erro 500/504 de timeout é devolvido como <code>HTTP 401</code> com corpo vazio.<br>' +
+              '<strong>Ação:</strong> Avise o responsável pela API (Daniel/Kaique) que o container Python de ML (<code>56.126.10.158:8000</code>) está offline/em timeout.';
+          }else{
+            diagBox.className = "api-diag-box erro";
+            diagBox.innerHTML = '<strong>✖ A API retornou HTTP ' + resp.status + '</strong><br>' +
+              escapeHtml(msgServidor || "Verifique se o serviço de Machine Learning está ativo.");
+          }
         }
       }catch(errRede){
         diagBox.className = "api-diag-box erro";

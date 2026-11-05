@@ -3,9 +3,9 @@
 
   /* ---------------- configuração da API de predição ---------------- */
 
-  // Endereço da API FastAPI. Se a API rodar em outra máquina, troque aqui
-  // (ex.: "http://192.168.0.10:8000") e inicie a API com --host 0.0.0.0.
-  var API_BASE_URL = "http://127.0.0.1:8000";
+  // Endereço padrão da API (editável em tempo de execução no modal "Configurar API & Token", sem porta hardcodada).
+  var API_BASE_URL = "http://52.67.241.122/api/v1/predictions";
+  var API_CONFIG_KEY = "config-api";
   var API_TIMEOUT_MS = 20000;
   var VERSAO_DADOS = 5;
   var LEGENDA_MODELO = "Predição do modelo (Regressão Logística, acurácia 86,67%) — estimativa estatística, não certeza.";
@@ -80,9 +80,34 @@
     alunos: [], loaded: false, query: "", risco: "", turno: "", curso: "", ordenacao: { campo: null, direcao: "asc" },
     predicoes: {},
     api: { status: "desconhecido", detalhe: null },
+    apiConfig: { url: API_BASE_URL, token: "" },
     macro: null,
     lote: { status: "ocioso", erro: null, seq: 0 },
     detalhe: null
+  };
+
+  var apiConfigService = {
+    carregar: function(){
+      try{
+        var raw = localStorage.getItem(API_CONFIG_KEY);
+        if(!raw) return { url: API_BASE_URL, token: "" };
+        var parsed = JSON.parse(raw);
+        return {
+          url: (parsed && typeof parsed.url === "string" && parsed.url.trim()) ? parsed.url.trim() : API_BASE_URL,
+          token: (parsed && typeof parsed.token === "string") ? parsed.token.trim().replace(/^Bearer\s+/i, "") : ""
+        };
+      }catch(err){
+        return { url: API_BASE_URL, token: "" };
+      }
+    },
+    salvar: function(config){
+      var limpo = {
+        url: (config && typeof config.url === "string" && config.url.trim()) ? config.url.trim() : API_BASE_URL,
+        token: (config && typeof config.token === "string") ? config.token.trim().replace(/^Bearer\s+/i, "") : ""
+      };
+      localStorage.setItem(API_CONFIG_KEY, JSON.stringify(limpo));
+      return limpo;
+    }
   };
   var sequenciaDetalhe = 0;
   var elementoComFocoAntesDoModal = null;
@@ -380,18 +405,28 @@
     return null;
   }
 
-  // Monta os 34 campos exigidos pela API. Lança erro se faltar qualquer dado (sem padrões).
-  function montarPayload(aluno){
+  // Monta os 34 atributos numéricos exigidos pelo modelo. Lança erro se faltar qualquer dado.
+  function montarFeatures(aluno){
     var faltantes = camposFaltantes(aluno);
     if(faltantes.length){
       throw new Error("Dados incompletos: " + faltantes.map(function(c){ return c.rotulo; }).join(", "));
     }
-    var payload = {};
+    var features = {};
     CAMPOS_PREDICAO.forEach(function(campo){
       var valor = valorDoCampo(aluno, campo);
-      payload[campo.chave] = campo.tipo === "catalogo" ? converterCodigoUciParaIndice(campo.chave, valor) : valor;
+      features[campo.chave] = campo.tipo === "catalogo" ? converterCodigoUciParaIndice(campo.chave, valor) : valor;
     });
-    return payload;
+    return features;
+  }
+
+  // Monta o payload no formato { studentId, features } exigido pelo Kasper API.
+  function montarPayload(aluno){
+    var features = montarFeatures(aluno);
+    var idEnvio = (aluno && (aluno.studentId || aluno.id)) ? String(aluno.studentId || aluno.id) : "ALUNO-2026-001";
+    return {
+      studentId: idEnvio,
+      features: features
+    };
   }
 
   function hashDados(texto){
@@ -401,7 +436,8 @@
   }
 
   function chaveCache(aluno, payload){
-    return aluno.id + ":" + hashDados(JSON.stringify(payload));
+    var baseHash = payload && payload.features ? payload.features : payload;
+    return aluno.id + ":" + hashDados(JSON.stringify(baseHash));
   }
 
   /* ---------------- comunicação com a API ---------------- */
@@ -412,8 +448,31 @@
     return erro;
   }
 
+  function obterUrlApi(caminho){
+    var urlConfigurada = (state.apiConfig && state.apiConfig.url ? state.apiConfig.url : API_BASE_URL).trim().replace(/\/+$/, "");
+    if(!caminho || caminho === "/predict" || caminho === "/predictions" || caminho === "/api/v1/predictions"){
+      if(/\/(predict|predictions)$/i.test(urlConfigurada)) return urlConfigurada;
+      return urlConfigurada + (caminho || "/api/v1/predictions");
+    }
+    var raiz = urlConfigurada.replace(/\/(api\/v1\/predictions|predictions|predict)$/i, "");
+    return raiz + caminho;
+  }
+
+  function montarHeadersApi(){
+    var headers = { "Content-Type": "application/json" };
+    var token = state.apiConfig && state.apiConfig.token ? state.apiConfig.token.trim() : "";
+    if(token){
+      headers["Authorization"] = /^Bearer\s+/i.test(token) ? token : ("Bearer " + token);
+    }
+    return headers;
+  }
+
   function mensagemHttp(status, dados){
-    var detalhe = dados && dados.detail;
+    var detalhe = dados && (dados.detail || dados.message || dados.error);
+    if(status === 401 || status === 403){
+      return "Acesso negado pela API (HTTP " + status + "). Verifique se o Token Bearer do Kasper AI Studio foi inserido corretamente em 'Configurar API & Token'." +
+        (typeof detalhe === "string" ? " Detalhe: " + detalhe : "");
+    }
     if(status === 422 && Array.isArray(detalhe)){
       return "A API recusou os dados (HTTP 422): " + detalhe.map(function(item){
         var local = Array.isArray(item.loc) ? item.loc.filter(function(p){ return p !== "body"; }).join(".") : "";
@@ -424,47 +483,140 @@
     return "A API retornou HTTP " + status + ".";
   }
 
+  async function executarFetchApi(urlAlvo, metodo, headers, corpo, sinal){
+    var emHttps = typeof window !== "undefined" && window.location && window.location.protocol === "https:";
+    var alvoHttp = /^http:\/\//i.test(urlAlvo);
+    if(emHttps && alvoHttp){
+      var proxyHeaders = Object.assign({}, headers, {
+        "X-Target-Url": urlAlvo,
+        "X-Http-Method": metodo
+      });
+      return fetch("/api/proxy", {
+        method: "POST",
+        headers: proxyHeaders,
+        body: metodo !== "GET" && corpo != null ? JSON.stringify(corpo) : undefined,
+        signal: sinal
+      });
+    }
+    return fetch(urlAlvo, {
+      method: metodo,
+      headers: headers,
+      body: metodo !== "GET" && corpo != null ? JSON.stringify(corpo) : undefined,
+      signal: sinal
+    });
+  }
+
+  function urlPortaAlternativa(urlAlvo){
+    // Se a URL for HTTP sem porta explícita (padrão 80), gera alternativa na 8080 (e vice-versa)
+    var mSemPorta = urlAlvo.match(/^(http:\/\/[^\/:]+)(\/.*)?$/i);
+    if(mSemPorta) return mSemPorta[1] + ":8080" + (mSemPorta[2] || "");
+    var mCom8080 = urlAlvo.match(/^(http:\/\/[^\/:]+):8080(\/.*)?$/i);
+    if(mCom8080) return mCom8080[1] + (mCom8080[2] || "");
+    var mCom80 = urlAlvo.match(/^(http:\/\/[^\/:]+):80(\/.*)?$/i);
+    if(mCom80) return mCom80[1] + ":8080" + (mCom80[2] || "");
+    return null;
+  }
+
   async function chamarApi(caminho, corpo){
     var controlador = typeof AbortController === "function" ? new AbortController() : null;
     var timer = setTimeout(function(){ if(controlador) controlador.abort(); }, API_TIMEOUT_MS);
+    var urlAlvo = obterUrlApi(caminho);
+    var headers = montarHeadersApi();
+    var sinal = controlador ? controlador.signal : undefined;
     var resposta;
     try{
-      resposta = await fetch(API_BASE_URL + caminho, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(corpo),
-        signal: controlador ? controlador.signal : undefined
-      });
+      try{
+        resposta = await executarFetchApi(urlAlvo, "POST", headers, corpo, sinal);
+      }catch(errPrimario){
+        var urlAlt = urlPortaAlternativa(urlAlvo);
+        if(urlAlt && (!errPrimario || errPrimario.name !== "AbortError")){
+          resposta = await executarFetchApi(urlAlt, "POST", headers, corpo, sinal);
+        }else{
+          throw errPrimario;
+        }
+      }
     }catch(err){
       throw erroApi("rede", err && err.name === "AbortError"
         ? "A API não respondeu em " + (API_TIMEOUT_MS / 1000) + " s."
-        : "Não foi possível conectar à API em " + API_BASE_URL + ".");
+        : "Não foi possível conectar à API em " + urlAlvo + ".");
     }finally{
       clearTimeout(timer);
     }
     var dados = null;
     try{ dados = await resposta.json(); }catch(err){ dados = null; }
     if(!resposta.ok) throw erroApi("http", mensagemHttp(resposta.status, dados));
+    state.api = { status: "online", detalhe: "Conectado à API (" + urlAlvo + ")." };
+    renderBadgeApi();
     return dados;
   }
 
-  var NIVEL_API = { "Baixo Risco": "low", "Médio Risco": "mid", "Alto Risco de Evasão": "high" };
+  var NIVEL_API = {
+    "Baixo Risco": "low",
+    "Baixo Risco de Evasão": "low",
+    "Baixo": "low",
+    "LOW": "low",
+    "Low": "low",
+    "low": "low",
+    "Médio Risco": "mid",
+    "Medio Risco": "mid",
+    "Médio Risco de Evasão": "mid",
+    "Médio": "mid",
+    "MEDIUM": "mid",
+    "Medium": "mid",
+    "mid": "mid",
+    "Alto Risco": "high",
+    "Alto Risco de Evasão": "high",
+    "Alto": "high",
+    "HIGH": "high",
+    "High": "high",
+    "high": "high"
+  };
 
-  // Converte uma predição da API em {score, nivel, ...}; nunca aceita resposta fora do contrato.
+  var ROTULO_NIVEL_PADRAO = {
+    low: "Baixo Risco",
+    mid: "Médio Risco",
+    high: "Alto Risco de Evasão"
+  };
+
+  // Converte uma predição da API em {score, nivel, ...}; suporta envelope do Kasper API e retorno direto do modelo.
   function converterRespostaApi(resposta){
-    var p = resposta && resposta.dropout_probability;
-    var nivel = resposta ? NIVEL_API[resposta.risk_level] : null;
+    if(!resposta || typeof resposta !== "object"){
+      throw erroApi("resposta", "A API devolveu uma resposta em formato inesperado.");
+    }
+    var r = (resposta.data && typeof resposta.data === "object") ? resposta.data
+          : (resposta.result && typeof resposta.result === "object") ? resposta.result
+          : (resposta.prediction && typeof resposta.prediction === "object") ? resposta.prediction
+          : resposta;
+
+    var p = typeof r.dropout_probability === "number" ? r.dropout_probability
+          : typeof r.dropoutProbability === "number" ? r.dropoutProbability
+          : typeof r.probability === "number" ? r.probability
+          : typeof r.probabilidade_evasao === "number" ? r.probabilidade_evasao
+          : null;
+
+    var rawNivel = r.risk_level != null ? r.risk_level
+                 : r.riskLevel != null ? r.riskLevel
+                 : r.risk != null ? r.risk
+                 : null;
+
+    var nivel = rawNivel != null ? NIVEL_API[String(rawNivel)] : null;
+    if(rawNivel == null && typeof p === "number" && isFinite(p) && p >= 0 && p <= 1 && (r.studentId != null || resposta.studentId != null)){
+      nivel = p >= 0.7 ? "high" : (p >= 0.4 ? "mid" : "low");
+      rawNivel = ROTULO_NIVEL_PADRAO[nivel];
+    }
+
     if(typeof p !== "number" || !isFinite(p) || p < 0 || p > 1 || !nivel){
       throw erroApi("resposta", "A API devolveu uma resposta em formato inesperado.");
     }
+    var pred = r.prediction != null ? r.prediction : resposta.prediction;
     return {
       score: Math.round(p * 100),
       nivel: nivel,
       probabilidade: p,
-      riskLevel: resposta.risk_level,
-      modelo: resposta.model_used || null,
-      acuracia: typeof resposta.model_accuracy === "number" ? resposta.model_accuracy : null,
-      evasaoPrevista: resposta.prediction === 1
+      riskLevel: ROTULO_NIVEL_PADRAO[nivel] || String(rawNivel),
+      modelo: r.model_used || r.modelUsed || null,
+      acuracia: typeof r.model_accuracy === "number" ? r.model_accuracy : (typeof r.modelAccuracy === "number" ? r.modelAccuracy : null),
+      evasaoPrevista: pred === 1 || pred === true || pred === "Dropout"
     };
   }
 
@@ -476,15 +628,10 @@
   }
 
   async function preverLote(alunos){
-    var payloads = alunos.map(montarPayload);
-    var dados = await chamarApi("/predict/batch", { students: payloads });
-    if(!dados || !Array.isArray(dados.predictions) || dados.predictions.length !== payloads.length){
-      throw erroApi("resposta", "A API devolveu um lote em formato inesperado.");
+    // Executa a predição individualmente no endpoint configurado (/api/v1/predictions) para cada aluno pendente
+    for(var i = 0; i < alunos.length; i++){
+      await preverRisco(alunos[i]);
     }
-    var resultados = dados.predictions.map(converterRespostaApi);
-    alunos.forEach(function(aluno, i){
-      state.predicoes[chaveCache(aluno, payloads[i])] = resultados[i];
-    });
   }
 
   /* ---------------- previsões em cache (lista e contadores) ---------------- */
@@ -535,6 +682,82 @@
     if(!state.macro) return "não configurados";
     return "desemprego " + formatarNumeroBR(state.macro.unemployment_rate) + "% · inflação " +
       formatarNumeroBR(state.macro.inflation_rate) + "% · PIB " + formatarNumeroBR(state.macro.gdp) + "%";
+  }
+
+  function renderTokenAviso(){
+    var el = document.getElementById("token-aviso");
+    if(!el) return;
+    var temToken = Boolean(state.apiConfig && state.apiConfig.token);
+    if(temToken){
+      el.hidden = true;
+      el.innerHTML = "";
+      return;
+    }
+    el.hidden = false;
+    el.innerHTML = '<div><strong>Token Bearer pendente.</strong> Gere seu token no <em>Kasper AI Studio</em> e configure a conexão para realizar predições na API.</div>' +
+      '<button type="button" class="btn-link js-abrir-api-config">Configurar API &amp; Token</button>';
+  }
+
+  function abrirModalApiConfig(){
+    var atual = state.apiConfig || { url: API_BASE_URL, token: "" };
+    abrirModal(
+      '<h2 id="modal-title">Configurar API &amp; Token Bearer</h2>' +
+      '<p class="modal-sub">Insira o <strong>Token Bearer</strong> gerado no <em>Kasper AI Studio</em> e confirme o endereço do endpoint (sem porta travada no código).</p>' +
+      '<form id="form-api-config">' +
+        '<div class="form-grid single">' +
+          '<div class="field">' +
+            '<label for="cfg-token">Token Bearer (Kasper AI Studio)</label>' +
+            '<input id="cfg-token" type="text" class="input-mono" placeholder="Cole aqui o token gerado (ex: eyJhbGciOi...)" value="' + escapeHtml(atual.token || "") + '" autocomplete="off" spellcheck="false" />' +
+            '<span class="field-hint">Enviado no cabeçalho HTTP como <code>Authorization: Bearer &lt;token&gt;</code>.</span>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label for="cfg-url">URL do Endpoint de Predição</label>' +
+            '<input id="cfg-url" type="url" class="input-mono" value="' + escapeHtml(atual.url || API_BASE_URL) + '" required spellcheck="false" />' +
+            '<span class="field-hint">Você pode informar qualquer IP, domínio ou porta. Atalhos rápidos:</span>' +
+            '<div class="preset-chips">' +
+              '<button type="button" class="preset-chip js-preset-url" data-url="http://52.67.241.122/api/v1/predictions">Kasper API (Sem porta / Padrão)</button>' +
+              '<button type="button" class="preset-chip js-preset-url" data-url="http://52.67.241.122:8080/api/v1/predictions">Kasper API (:8080)</button>' +
+              '<button type="button" class="preset-chip js-preset-url" data-url="http://56.126.10.158:8000/predict">ML Direto (:8000)</button>' +
+              '<button type="button" class="preset-chip js-preset-url" data-url="http://127.0.0.1:8000/predict">Localhost</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="form-actions">' +
+          '<button type="button" class="btn btn-secondary" id="btn-cancelar-modal">Cancelar</button>' +
+          '<button type="submit" class="btn btn-primary">Salvar e Conectar</button>' +
+        '</div>' +
+      '</form>'
+    );
+
+    document.getElementById("btn-cancelar-modal").addEventListener("click", fecharModal);
+    document.querySelectorAll(".js-preset-url").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        document.getElementById("cfg-url").value = btn.getAttribute("data-url");
+      });
+    });
+
+    document.getElementById("form-api-config").addEventListener("submit", function(e){
+      e.preventDefault();
+      var urlDigitada = document.getElementById("cfg-url").value.trim();
+      var tokenDigitado = document.getElementById("cfg-token").value.trim();
+      if(!urlDigitada){
+        mostrarToast("Informe a URL do endpoint da API.", "erro");
+        return;
+      }
+      state.apiConfig = apiConfigService.salvar({ url: urlDigitada, token: tokenDigitado });
+      state.predicoes = {};
+      if(state.apiConfig.token){
+        state.api = { status: "online", detalhe: "Token Bearer configurado (" + state.apiConfig.url + ")." };
+      }else{
+        state.api = { status: "desconhecido", detalhe: "Endpoint configurado sem Token Bearer." };
+      }
+      fecharModal();
+      renderBadgeApi();
+      renderLista();
+      atualizarDetalheAberto();
+      mostrarToast(state.apiConfig.token ? "Token Bearer e endpoint salvos com sucesso." : "Endpoint salvo (sem Token Bearer).");
+      atualizarLote();
+    });
   }
 
   function renderMacroAviso(){
@@ -632,9 +855,9 @@
 
   var API_HEALTH_TIMEOUT_MS = 5000;
   var ROTULOS_API = {
-    desconhecido: "API: não verificada",
+    desconhecido: "Token pendente",
     verificando: "API: verificando…",
-    online: "API online",
+    online: "API pronta · Token ativo",
     offline: "API offline",
     modelo: "API sem modelo"
   };
@@ -645,8 +868,9 @@
     var timer = setTimeout(function(){ if(controlador) controlador.abort(); }, API_HEALTH_TIMEOUT_MS);
     state.api = { status: "verificando", detalhe: null };
     renderBadgeApi();
+    var urlHealth = obterUrlApi("/health");
     try{
-      var resposta = await fetch(API_BASE_URL + "/health", { signal: controlador ? controlador.signal : undefined });
+      var resposta = await fetch(urlHealth, { signal: controlador ? controlador.signal : undefined });
       var dados = null;
       try{ dados = await resposta.json(); }catch(err){ dados = null; }
       if(!resposta.ok){
@@ -657,7 +881,7 @@
         state.api = { status: "modelo", detalhe: "A API respondeu, mas o modelo não está carregado." };
       }
     }catch(err){
-      state.api = { status: "offline", detalhe: "Não foi possível conectar à API em " + API_BASE_URL + "." };
+      state.api = { status: "offline", detalhe: "Não foi possível conectar à API em " + urlHealth + "." };
     }finally{
       clearTimeout(timer);
     }
@@ -668,10 +892,18 @@
   function renderBadgeApi(){
     var el = document.getElementById("api-badge");
     if(!el) return;
+    var temToken = Boolean(state.apiConfig && state.apiConfig.token);
     var status = state.api.status;
+    var rotulo = ROTULOS_API[status] || ROTULOS_API.desconhecido;
+    if(status === "online" && !temToken){
+      rotulo = "API online";
+    }else if(status === "desconhecido" && temToken){
+      status = "online";
+      rotulo = "API pronta · Token ativo";
+    }
     el.className = "api-badge " + status;
-    el.textContent = ROTULOS_API[status] || ROTULOS_API.desconhecido;
-    el.title = (state.api.detalhe ? state.api.detalhe + " " : "") + "Clique para verificar novamente.";
+    el.textContent = rotulo;
+    el.title = (state.api.detalhe ? state.api.detalhe + " " : "") + "Clique para configurar a API e o Token Bearer.";
   }
 
   async function reverificarApi(){
@@ -858,8 +1090,17 @@
     try{
       var alunosSalvos = alunosService.listar();
       if(alunosSalvos){
-        var precisaSalvar = alunosSalvos.some(function(a){ return a.versaoDados !== VERSAO_DADOS; });
-        state.alunos = alunosSalvos.map(function(aluno){
+        var emailsExemplo = [
+          "fernanda.costa@escola.com",
+          "joao.martins@escola.com",
+          "mariana.santos@escola.com",
+          "caua.camargo@escola.com"
+        ];
+        var filtrados = alunosSalvos.filter(function(a){
+          return emailsExemplo.indexOf(a.email) === -1;
+        });
+        var precisaSalvar = filtrados.length !== alunosSalvos.length || filtrados.some(function(a){ return a.versaoDados !== VERSAO_DADOS; });
+        state.alunos = filtrados.map(function(aluno){
           var migrado = migrarAluno(aluno);
           sincronizarTurno(migrado);
           return migrado;
@@ -870,8 +1111,8 @@
     }catch(err){
       console.error("Erro ao carregar dados", err);
     }
-    // primeira vez usando a página (ou dado corrompido/indisponível): começa com exemplos
-    state.alunos = gerarAlunosExemplo();
+    // Primeira vez usando a pagina: inicia com a base limpa (sem alunos)
+    state.alunos = [];
     salvarDados();
   }
 
@@ -1079,6 +1320,7 @@
   function renderLista(){
     preencherFiltros();
     renderStatusApi();
+    renderTokenAviso();
     renderMacroAviso();
     renderStats();
 
@@ -1219,8 +1461,8 @@
             '<div class="meta-item"><span class="meta-label">Turno</span><strong class="meta-value">' + escapeHtml(aluno.turno || "Não informado") + '</strong></div>' +
             '<div class="meta-item"><span class="meta-label">Data de matrícula</span><strong class="meta-value">' + formatarData(aluno.dataMatricula) + '</strong></div>' +
             '<div class="meta-item"><span class="meta-label">Idade na matrícula</span><strong class="meta-value">' + (dados.age_at_enrollment == null ? "—" : dados.age_at_enrollment + " anos") + '</strong></div>' +
-            '<div class="meta-item"><span class="meta-label">Código do curso (UCI)</span><strong class="meta-value">' + (aluno.cursoCodigo == null ? "—" : aluno.cursoCodigo) + '</strong></div>' +
-            '<div class="meta-item"><span class="meta-label">Preenchimento do modelo</span><strong class="meta-value">' + preenchidos + ' de ' + CAMPOS_PREDICAO.length + ' campos</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">ID na API (studentId)</span><strong class="meta-value">' + escapeHtml(aluno.studentId || aluno.id) + '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">Preenchimento do modelo</span><strong class="meta-value">' + preenchidos + ' de ' + CAMPOS_PREDICAO.length + ' campos (cód. UCI ' + (aluno.cursoCodigo == null ? "—" : aluno.cursoCodigo) + ')</strong></div>' +
             '<div class="meta-item meta-item-wide"><span class="meta-label">Indicadores macroeconômicos (globais)</span><strong class="meta-value">' + escapeHtml(textoMacro()) + '</strong></div>' +
           '</div>' +
           '<div class="academic-summary"><h3>Acompanhamento acadêmico</h3>' +
@@ -1286,18 +1528,30 @@
   }
 
   function abrirModalNovoAluno(){
+    var proximoNum = String(state.alunos.length + 1).padStart(3, "0");
+    var sugestaoStudentId = "ALUNO-2026-" + proximoNum;
+
     abrirModal(
       '<h2 id="modal-title">Matricular aluno</h2>' +
-      '<p class="modal-sub">Cadastro básico. Os dados para predição de evasão são preenchidos depois, em Editar dados.</p>' +
+      '<p class="modal-sub">Cadastre o estudante para acompanhamento e envio do payload de predição à API.</p>' +
       '<form id="form-novo-aluno">' +
-        '<div class="form-grid single">' +
-          '<div class="field"><label for="f-nome">Nome completo</label><input id="f-nome" required /></div>' +
-          '<div class="field"><label for="f-email">E-mail</label><input id="f-email" type="email" required /></div>' +
+        '<div class="form-grid">' +
+          '<div class="field"><label for="f-nome">Nome completo</label><input id="f-nome" required placeholder="Ex.: Lucas Ferreira" /></div>' +
+          '<div class="field"><label for="f-email">E-mail</label><input id="f-email" type="email" required placeholder="Ex.: lucas@escola.com" /></div>' +
+          '<div class="field"><label for="f-student-id">ID do aluno na API (studentId)</label><input id="f-student-id" class="input-mono" value="' + escapeHtml(sugestaoStudentId) + '" required /></div>' +
+          '<div class="field"><label for="f-perfil-inicial">Preenchimento dos 34 atributos do modelo</label>' +
+            '<select id="f-perfil-inicial">' +
+              '<option value="alto" selected>Cenário Crítico (Alto Risco de Evasão — pronto para prever)</option>' +
+              '<option value="medio">Cenário Intermediário (Médio Risco — pronto para prever)</option>' +
+              '<option value="baixo">Cenário Destaque (Baixo Risco / Permanência — pronto para prever)</option>' +
+              '<option value="">Em branco (preencher manualmente em Editar dados)</option>' +
+            '</select>' +
+          '</div>' +
         '</div>' +
         renderCamposIngresso("f", null) +
         '<div class="form-actions">' +
           '<button type="button" class="btn btn-secondary" id="btn-cancelar-modal">Cancelar</button>' +
-          '<button type="submit" class="btn btn-primary">Matricular</button>' +
+          '<button type="submit" class="btn btn-primary">Matricular aluno</button>' +
         '</div>' +
       '</form>'
     );
@@ -1315,18 +1569,37 @@
         return;
       }
       var ingresso = lerDadosIngresso("f", null);
+      var chavePerfil = document.getElementById("f-perfil-inicial").value;
+      var studentIdDigitado = document.getElementById("f-student-id").value.trim() || sugestaoStudentId;
+      var dadosPredicao = {};
+      var freq = null, med = null, repr = null;
+
+      if(chavePerfil && PERFIS_EXEMPLO[chavePerfil]){
+        dadosPredicao = Object.assign({}, PERFIS_EXEMPLO[chavePerfil].dados);
+        delete dadosPredicao.course;
+        CAMPOS_MACRO.forEach(function(chave){ delete dadosPredicao[chave]; });
+        if(chavePerfil === "alto"){ freq = 52; med = 4.2; repr = 4; }
+        else if(chavePerfil === "medio"){ freq = 68; med = 5.5; repr = 2; }
+        else if(chavePerfil === "baixo"){ freq = 88; med = 7.8; repr = 0; }
+      }
+
+      var turnoEscolhido = document.getElementById("f-turno").value;
+      if(turnoEscolhido === "Diurno") dadosPredicao.daytime_evening_attendance = 1;
+      else if(turnoEscolhido === "Noturno") dadosPredicao.daytime_evening_attendance = 0;
+
       var novo = {
         id: gerarId(),
+        studentId: studentIdDigitado,
         nome: document.getElementById("f-nome").value.trim(),
         email: document.getElementById("f-email").value.trim(),
         cursoCodigo: ingresso.cursoCodigo,
         curso: ingresso.curso,
         dataMatricula: ingresso.dataMatricula,
-        turno: document.getElementById("f-turno").value,
-        frequencia: null,
-        media: null,
-        disciplinasReprovadas: null,
-        dadosPredicao: {},
+        turno: turnoEscolhido,
+        frequencia: freq,
+        media: med,
+        disciplinasReprovadas: repr,
+        dadosPredicao: dadosPredicao,
         versaoDados: VERSAO_DADOS,
         status: "ativo"
       };
@@ -1339,6 +1612,12 @@
       renderLista();
       fecharModal();
       mostrarToast("Aluno matriculado com sucesso.");
+      if(chavePerfil){
+        abrirDetalhe(novo.id);
+        if(state.apiConfig && state.apiConfig.token){
+          executarPrevisaoDetalhe(novo.id);
+        }
+      }
     });
   }
 
@@ -1442,7 +1721,9 @@
     e.target.value = "";
     if(arquivo) importarArquivo(arquivo);
   });
-  document.getElementById("api-badge").addEventListener("click", reverificarApi);
+  document.getElementById("api-badge").addEventListener("click", abrirModalApiConfig);
+  var btnApiConfig = document.getElementById("btn-api-config");
+  if(btnApiConfig) btnApiConfig.addEventListener("click", abrirModalApiConfig);
   document.getElementById("btn-macro").addEventListener("click", abrirModalMacro);
 
   document.getElementById("btn-back").addEventListener("click", function(){
@@ -1516,22 +1797,32 @@
     if(e.target.closest(".js-tentar-lote")){ atualizarLote(); return; }
 
     if(e.target.closest(".js-abrir-macro")){ abrirModalMacro(); return; }
+
+    if(e.target.closest(".js-abrir-api-config")){ abrirModalApiConfig(); return; }
   });
 
   /* ---------------- inicialização ---------------- */
 
-  state.macro = macroService.carregar();
+  state.apiConfig = apiConfigService.carregar();
+  if(state.apiConfig && state.apiConfig.token){
+    state.api = { status: "online", detalhe: "Token Bearer ativo (" + state.apiConfig.url + ")." };
+  }
+  state.macro = macroService.carregar() || { unemployment_rate: 10.8, inflation_rate: 1.4, gdp: 1.74 };
   carregarDados();
   preencherFiltros();
   state.loaded = true;
   renderLista();
   renderBadgeApi();
-  verificarSaudeApi().then(function(){ atualizarLote(); });
+  if(state.apiConfig && state.apiConfig.token){
+    atualizarLote();
+  }
 
   // Gancho de teste: só existe se a página definir window.__EXPOR_TESTE__ antes de carregar.
   if(window.__EXPOR_TESTE__){
     window.__teste = {
+      montarFeatures: montarFeatures,
       montarPayload: montarPayload,
+      apiConfigService: apiConfigService,
       camposFaltantes: camposFaltantes,
       preverRisco: preverRisco,
       converterCodigoUciParaIndice: converterCodigoUciParaIndice,

@@ -99,6 +99,15 @@
     detalhe: null
   };
 
+  function limparTokenBearer(rawToken){
+    if(typeof rawToken !== "string") return "";
+    return rawToken
+      .trim()
+      .replace(/^["']+|["']+$/g, "")
+      .replace(/^Bearer\s+/i, "")
+      .trim();
+  }
+
   var apiConfigService = {
     carregar: function(){
       try{
@@ -107,7 +116,7 @@
         var parsed = JSON.parse(raw);
         var carregado = {
           url: normalizarUrlConfig(parsed && parsed.url),
-          token: (parsed && typeof parsed.token === "string") ? parsed.token.trim().replace(/^Bearer\s+/i, "") : ""
+          token: limparTokenBearer(parsed && parsed.token)
         };
         localStorage.setItem(API_CONFIG_KEY, JSON.stringify(carregado));
         return carregado;
@@ -118,7 +127,7 @@
     salvar: function(config){
       var limpo = {
         url: normalizarUrlConfig(config && config.url),
-        token: (config && typeof config.token === "string") ? config.token.trim().replace(/^Bearer\s+/i, "") : ""
+        token: limparTokenBearer(config && config.token)
       };
       localStorage.setItem(API_CONFIG_KEY, JSON.stringify(limpo));
       return limpo;
@@ -228,27 +237,145 @@
     if(nomeLegado && !cursoPorCodigo(selecionado)){
       opcoes += '<option value="legacy" selected>' + escapeHtml(nomeLegado) + ' (cadastro existente)</option>';
     }
-    return opcoes + CURSOS_DISPONIVEIS.map(function(curso){
-      return '<option value="' + curso.codigo + '"' + (curso.codigo === selecionado ? ' selected' : '') + '>' + escapeHtml(curso.nome) + ' · cód. ' + curso.codigo + '</option>';
+    return opcoes + CURSOS_DISPONIVEIS.map(function(curso, idx){
+      return '<option value="' + curso.codigo + '"' + (curso.codigo === selecionado ? ' selected' : '') + '>Cód. ' + (idx + 1) + ' — ' + escapeHtml(curso.nome) + ' (UCI ' + curso.codigo + ')</option>';
     }).join("");
   }
 
+  // Os 13 atributos do payload exemplificado pelo líder (Daniel) na Kasper API:
+  // "course" fica em Dados de matrícula; os outros 12 aparecem diretamente na grade principal.
+  var CHAVES_ESSENCIAIS_DANIEL = [
+    "marital_status",
+    "age_at_enrollment",
+    "debtor",
+    "tuition_fees_up_to_date",
+    "scholarship_holder",
+    "curricular_units_1st_sem_enrolled",
+    "curricular_units_1st_sem_approved",
+    "curricular_units_1st_sem_grade",
+    "curricular_units_2nd_sem_enrolled",
+    "curricular_units_2nd_sem_approved",
+    "curricular_units_2nd_sem_grade",
+    "unemployment_rate"
+  ];
+
+  var DEFAULTS_SECUNDARIOS_UCI = {
+    application_mode: 1,
+    application_order: 1,
+    daytime_evening_attendance: 1,
+    previous_qualification: 1,
+    nationality: 1,
+    mothers_qualification: 1,
+    fathers_qualification: 1,
+    mothers_occupation: 4,
+    fathers_occupation: 4,
+    displaced: 0,
+    educational_special_needs: 0,
+    gender: 1,
+    international: 0,
+    curricular_units_1st_sem_credited: 0,
+    curricular_units_1st_sem_evaluations: 6,
+    curricular_units_1st_sem_without_evaluations: 0,
+    curricular_units_2nd_sem_credited: 0,
+    curricular_units_2nd_sem_evaluations: 6,
+    curricular_units_2nd_sem_without_evaluations: 0
+  };
+
+  var EXEMPLOS_DANIEL = {
+    evasao: {
+      rotulo: "ALUNO-RISCO-EVASAO (Crítico · Idade 32)",
+      studentId: "ALUNO-RISCO-EVASAO",
+      nomeSugerido: "Carlos Eduardo Silva",
+      emailSugerido: "carlos.evasao@escola.com",
+      cursoCodigoUci: 171, // course: 2
+      turno: "Diurno",
+      frequencia: 48,
+      media: 3.5,
+      reprovadas: 6,
+      unemployment_rate: 16.2,
+      dados: {
+        marital_status: 1,
+        debtor: 1,
+        tuition_fees_up_to_date: 0,
+        scholarship_holder: 0,
+        age_at_enrollment: 32,
+        curricular_units_1st_sem_enrolled: 6,
+        curricular_units_1st_sem_approved: 0,
+        curricular_units_1st_sem_grade: 0.0,
+        curricular_units_2nd_sem_enrolled: 6,
+        curricular_units_2nd_sem_approved: 0,
+        curricular_units_2nd_sem_grade: 0.0
+      }
+    },
+    critico1: {
+      rotulo: "ALUNO-001-CRITICO (Crítico · Idade 29)",
+      studentId: "ALUNO-001-CRITICO",
+      nomeSugerido: "Lucas Mendes",
+      emailSugerido: "lucas.critico@escola.com",
+      cursoCodigoUci: 171, // course: 2
+      turno: "Noturno",
+      frequencia: 52,
+      media: 4.0,
+      reprovadas: 6,
+      unemployment_rate: 16.2,
+      dados: {
+        marital_status: 1,
+        debtor: 1,
+        tuition_fees_up_to_date: 0,
+        scholarship_holder: 0,
+        age_at_enrollment: 29,
+        curricular_units_1st_sem_enrolled: 6,
+        curricular_units_1st_sem_approved: 0,
+        curricular_units_1st_sem_grade: 0.0,
+        curricular_units_2nd_sem_enrolled: 6,
+        curricular_units_2nd_sem_approved: 0,
+        curricular_units_2nd_sem_grade: 0.0
+      }
+    },
+    destaque2: {
+      rotulo: "ALUNO-002-DESTAQUE (Baixo Risco · Idade 18)",
+      studentId: "ALUNO-002-DESTAQUE",
+      nomeSugerido: "Mariana Costa",
+      emailSugerido: "mariana.destaque@escola.com",
+      cursoCodigoUci: 9147, // course: 9 (Gestão)
+      turno: "Diurno",
+      frequencia: 94,
+      media: 8.9,
+      reprovadas: 0,
+      unemployment_rate: 8.0,
+      dados: {
+        marital_status: 1,
+        debtor: 0,
+        tuition_fees_up_to_date: 1,
+        scholarship_holder: 1,
+        age_at_enrollment: 18,
+        curricular_units_1st_sem_enrolled: 6,
+        curricular_units_1st_sem_approved: 6,
+        curricular_units_1st_sem_grade: 17.5,
+        curricular_units_2nd_sem_enrolled: 6,
+        curricular_units_2nd_sem_approved: 6,
+        curricular_units_2nd_sem_grade: 18.0
+      }
+    }
+  };
+
   function renderCamposIngresso(prefixo, aluno){
     aluno = aluno || {};
-    var cursoSelecionado = Number(aluno.cursoCodigo) || "";
+    var cursoSelecionado = Number(aluno.cursoCodigo) || (prefixo === "f" ? 171 : "");
     var cursoOptions = opcoesCurso(cursoSelecionado, aluno.curso);
+    var turnoAtual = aluno.turno || (prefixo === "f" ? "Diurno" : "");
     var campoTurno = "";
     if(prefixo === "f"){
       var turnoOptions = '<option value="">Selecione o turno</option>' + TURNOS_DISPONIVEIS.map(function(t){
-        return '<option value="' + escapeHtml(t) + '"' + (aluno.turno === t ? ' selected' : '') + '>' + escapeHtml(t) + '</option>';
+        return '<option value="' + escapeHtml(t) + '"' + (turnoAtual === t ? ' selected' : '') + '>' + escapeHtml(t) + '</option>';
       }).join("");
       campoTurno = '<div class="field"><label for="' + prefixo + '-turno">Turno</label><select id="' + prefixo + '-turno" required>' + turnoOptions + '</select></div>';
     }
 
     return '<fieldset class="form-section">' +
-      '<legend>Dados de matrícula</legend>' +
+      '<legend>Dados de matrícula (Atributo <code>course</code> do payload)</legend>' +
       '<div class="form-grid">' +
-        '<div class="field"><label for="' + prefixo + '-curso">Curso</label><select id="' + prefixo + '-curso" required>' + cursoOptions + '</select><span class="field-hint">Catálogo do modelo (rótulo + código UCI).</span></div>' +
+        '<div class="field"><label for="' + prefixo + '-curso">Curso (<code>course</code>: 1 a 17)</label><select id="' + prefixo + '-curso" required>' + cursoOptions + '</select><span class="field-hint">Ex.: Cód. 2 = <code>"course": 2</code> no JSON da API.</span></div>' +
         campoTurno +
         '<div class="field"><label for="' + prefixo + '-data">Data de matrícula</label><input id="' + prefixo + '-data" type="date" value="' + escapeHtml(aluno.dataMatricula || hojeISO()) + '" required /></div>' +
       '</div>' +
@@ -270,7 +397,9 @@
 
   function lerDadosAcademicos(prefixo){
     function numero(campo){
-      var valor = document.getElementById(prefixo + "-" + campo).value;
+      var el = document.getElementById(prefixo + "-" + campo);
+      if(!el) return null;
+      var valor = el.value;
       return valor === "" ? null : Number(valor);
     }
     return {
@@ -298,6 +427,9 @@
   function valorDoCampo(aluno, campo){
     var valor;
     if(campo.chave === "course") valor = aluno.cursoCodigo;
+    else if(campo.chave === "unemployment_rate" && aluno && typeof aluno.unemploymentRate === "number" && isFinite(aluno.unemploymentRate) && state.macro){
+      valor = aluno.unemploymentRate;
+    }
     else if(campo.global) valor = state.macro ? state.macro[campo.chave] : null;
     else valor = (aluno.dadosPredicao || {})[campo.chave];
     return valor == null || valor === "" ? null : valor;
@@ -309,17 +441,39 @@
     var controle;
     if(campo.tipo === "catalogo" || campo.tipo === "opcao"){
       controle = '<select id="' + id + '"><option value="">Selecione</option>' + campo.opcoes.map(function(opcao){
-        return '<option value="' + opcao.codigo + '"' + (valor === opcao.codigo ? ' selected' : '') + '>' + escapeHtml(opcao.rotulo) + '</option>';
+        return '<option value="' + opcao.codigo + '"' + (valor === opcao.codigo ? ' selected' : '') + '>' + opcao.codigo + ' — ' + escapeHtml(opcao.rotulo) + '</option>';
       }).join("") + '</select>';
     }else{
       controle = '<input id="' + id + '" type="number" min="' + campo.min + '" max="' + campo.max + '" step="' + (campo.tipo === "inteiro" ? "1" : "any") + '" value="' + (valor == null ? "" : valor) + '" />';
     }
-    return '<div class="field"><label for="' + id + '">' + escapeHtml(campo.rotulo) + '</label>' + controle + '</div>';
+    return '<div class="field"><label for="' + id + '">' + escapeHtml(campo.rotulo) + ' <code class="field-code">' + escapeHtml(campo.chave) + '</code></label>' + controle + '</div>';
+  }
+
+  function renderCamposEssenciaisDaniel(prefixo, aluno){
+    aluno = aluno || {};
+    var camposEssenciais = CHAVES_ESSENCIAIS_DANIEL.map(function(chave){
+      return CAMPOS_PREDICAO.find(function(c){ return c.chave === chave; });
+    }).filter(Boolean);
+
+    var botoesDaniel = Object.keys(EXEMPLOS_DANIEL).map(function(chave){
+      return '<button type="button" class="btn btn-secondary js-exemplo-daniel" data-prefixo="' + prefixo + '" data-exemplo="' + chave + '">' + escapeHtml(EXEMPLOS_DANIEL[chave].rotulo) + '</button>';
+    }).join("");
+
+    return '<fieldset class="form-section">' +
+      '<legend>Dados para Predição de Evasão (Payload Kasper API)</legend>' +
+      '<p class="form-section-note">Estes são os atributos enviados no objeto <code>features</code> para <code>/api/v1/predictions</code> (o atributo <code>course</code> é definido acima em Dados de matrícula).</p>' +
+      '<div class="example-actions"><span>Preencher com exemplo oficial da API:</span>' + botoesDaniel + '</div>' +
+      '<div class="form-grid">' +
+        camposEssenciais.map(function(c){ return renderCampoPredicao(prefixo, c, aluno); }).join("") +
+      '</div>' +
+    '</fieldset>';
   }
 
   function renderCamposPredicao(prefixo, aluno){
-    var blocos = GRUPOS_PREDICAO.map(function(grupo){
-      var campos = CAMPOS_PREDICAO.filter(function(c){ return c.grupo === grupo && !c.cadastro && !c.global; });
+    var blocosSecundarios = GRUPOS_PREDICAO.map(function(grupo){
+      var campos = CAMPOS_PREDICAO.filter(function(c){
+        return c.grupo === grupo && !c.cadastro && !c.global && CHAVES_ESSENCIAIS_DANIEL.indexOf(c.chave) === -1;
+      });
       if(!campos.length) return "";
       return '<div class="predict-group"><h4>' + escapeHtml(grupo) + '</h4><div class="form-grid">' +
         campos.map(function(c){ return renderCampoPredicao(prefixo, c, aluno); }).join("") +
@@ -330,31 +484,75 @@
       return '<button type="button" class="btn btn-secondary js-exemplo" data-prefixo="' + prefixo + '" data-perfil="' + chave + '">' + escapeHtml(PERFIS_EXEMPLO[chave].rotulo) + '</button>';
     }).join("");
 
-    return '<fieldset class="form-section">' +
-      '<legend>Dados para predição</legend>' +
-      '<p class="form-section-note">Todos os campos são obrigatórios para prever o risco; sem eles a previsão não é feita. O curso é escolhido em &ldquo;Dados de matrícula&rdquo;.</p>' +
-      '<div class="example-actions"><span>Carregar perfil de exemplo (linha real do dataset):</span>' + botoes + '</div>' +
-      blocos +
-    '</fieldset>';
+    return renderCamposEssenciaisDaniel(prefixo, aluno) +
+      '<details class="predict-advanced">' +
+        '<summary>Atributos complementares do dataset UCI (21 campos preenchidos automaticamente com padrão)</summary>' +
+        '<div class="predict-advanced-body">' +
+          '<div class="example-actions"><span>Carregar linha completa do CSV UCI:</span>' + botoes + '</div>' +
+          blocosSecundarios +
+        '</div>' +
+      '</details>';
   }
 
   function lerFormularioPredicao(prefixo){
     var dados = {};
     CAMPOS_PREDICAO.forEach(function(campo){
       if(campo.cadastro || campo.global) return;
-      var valor = document.getElementById(prefixo + "-p-" + campo.chave).value;
-      dados[campo.chave] = valor === "" ? null : Number(valor);
+      var el = document.getElementById(prefixo + "-p-" + campo.chave);
+      var valor = el ? el.value : "";
+      if(valor === "" && DEFAULTS_SECUNDARIOS_UCI.hasOwnProperty(campo.chave)){
+        dados[campo.chave] = DEFAULTS_SECUNDARIOS_UCI[campo.chave];
+      }else{
+        dados[campo.chave] = valor === "" ? null : Number(valor);
+      }
     });
+    if(typeof dados.curricular_units_1st_sem_enrolled === "number"){
+      var elEv1 = document.getElementById(prefixo + "-p-curricular_units_1st_sem_evaluations");
+      if(!elEv1 || elEv1.value === "") dados.curricular_units_1st_sem_evaluations = dados.curricular_units_1st_sem_enrolled;
+    }
+    if(typeof dados.curricular_units_2nd_sem_enrolled === "number"){
+      var elEv2 = document.getElementById(prefixo + "-p-curricular_units_2nd_sem_evaluations");
+      if(!elEv2 || elEv2.value === "") dados.curricular_units_2nd_sem_evaluations = dados.curricular_units_2nd_sem_enrolled;
+    }
     return dados;
+  }
+
+  function lerUnemploymentRateIndividual(prefixo){
+    var el = document.getElementById(prefixo + "-p-unemployment_rate");
+    if(!el || el.value === "") return null;
+    var n = Number(el.value);
+    return isFinite(n) ? n : null;
+  }
+
+  function preencherExemploDaniel(prefixo, chaveExemplo){
+    var ex = EXEMPLOS_DANIEL[chaveExemplo];
+    if(!ex) return;
+    var elCurso = document.getElementById(prefixo + "-curso");
+    if(elCurso) elCurso.value = String(ex.cursoCodigoUci);
+    var elTurno = document.getElementById(prefixo + "-turno");
+    if(elTurno && ex.turno) elTurno.value = ex.turno;
+    var elStudentId = document.getElementById(prefixo + "-student-id");
+    if(elStudentId && ex.studentId) elStudentId.value = ex.studentId;
+    var elNome = document.getElementById(prefixo + "-nome");
+    if(elNome && !elNome.value.trim() && ex.nomeSugerido) elNome.value = ex.nomeSugerido;
+    var elEmail = document.getElementById(prefixo + "-email");
+    if(elEmail && !elEmail.value.trim() && ex.emailSugerido) elEmail.value = ex.emailSugerido;
+
+    Object.keys(ex.dados).forEach(function(chave){
+      var el = document.getElementById(prefixo + "-p-" + chave);
+      if(el) el.value = String(ex.dados[chave]);
+    });
+    var elUnemp = document.getElementById(prefixo + "-p-unemployment_rate");
+    if(elUnemp && ex.unemployment_rate != null) elUnemp.value = String(ex.unemployment_rate);
+    mostrarToast("Exemplo " + ex.studentId + " preenchido nos campos.");
   }
 
   function preencherPerfilExemplo(prefixo, chavePerfil){
     var perfil = PERFIS_EXEMPLO[chavePerfil];
     if(!perfil) return;
     CAMPOS_PREDICAO.forEach(function(campo){
-      if(campo.global) return;
       var el = document.getElementById(campo.cadastro ? prefixo + "-curso" : prefixo + "-p-" + campo.chave);
-      if(el) el.value = String(perfil.dados[campo.chave]);
+      if(el && perfil.dados[campo.chave] != null) el.value = String(perfil.dados[campo.chave]);
     });
     mostrarToast("Perfil de exemplo carregado (" + perfil.rotulo.toLowerCase() + "). Salve para aplicar.");
   }
@@ -479,18 +677,21 @@
 
   function montarHeadersApi(){
     var headers = { "Content-Type": "application/json", "Accept": "application/json" };
-    var token = state.apiConfig && state.apiConfig.token ? state.apiConfig.token.trim() : "";
+    var token = state.apiConfig && state.apiConfig.token ? limparTokenBearer(state.apiConfig.token) : "";
     if(token){
-      headers["Authorization"] = /^Bearer\s+/i.test(token) ? token : ("Bearer " + token);
+      headers["Authorization"] = "Bearer " + token;
+      headers["X-API-KEY"] = token;
     }
     return headers;
   }
 
   function mensagemHttp(status, dados){
-    var detalhe = dados && (dados.detail || dados.message || dados.error);
-    if(status === 401 || status === 403){
-      return "Acesso negado pela API (HTTP " + status + "). Verifique se o Token Bearer do Kasper AI Studio foi inserido corretamente em 'Configurar API & Token'." +
-        (typeof detalhe === "string" ? " Detalhe: " + detalhe : "");
+    var detalhe = dados && (dados.detail || dados.message || dados.error || dados.erro);
+    if(status === 401){
+      return "Acesso negado pela API (HTTP 401" + (typeof detalhe === "string" && detalhe ? " — " + detalhe : "") + "). Gere um novo Token Bearer no Kasper AI Studio e salve em 'Configurar API & Token'.";
+    }
+    if(status === 403){
+      return "Acesso bloqueado pela API (HTTP 403" + (typeof detalhe === "string" && detalhe ? " — " + detalhe : "") + "). Verifique a liberação de CORS deste domínio na API ou confira o Token.";
     }
     if(status === 422 && Array.isArray(detalhe)){
       return "A API recusou os dados (HTTP 422): " + detalhe.map(function(item){
@@ -522,11 +723,27 @@
     return null;
   }
 
+  async function lerCorpoResposta(resposta){
+    if(!resposta) return null;
+    try{
+      return await resposta.json();
+    }catch(errJson){
+      if(typeof resposta.text === "function"){
+        try{
+          var txt = await resposta.text();
+          if(txt && txt.trim()) return { detail: txt.trim().slice(0, 220) };
+        }catch(errTxt){}
+      }
+      return null;
+    }
+  }
+
   async function chamarApi(caminho, corpo){
     var controlador = typeof AbortController === "function" ? new AbortController() : null;
     var timer = setTimeout(function(){ if(controlador) controlador.abort(); }, API_TIMEOUT_MS);
     var urlAlvo = obterUrlApi(caminho);
     var headers = montarHeadersApi();
+    var tokenLimpo = state.apiConfig && state.apiConfig.token ? limparTokenBearer(state.apiConfig.token) : "";
     var sinal = controlador ? controlador.signal : undefined;
     var resposta;
     try{
@@ -540,6 +757,12 @@
           throw errPrimario;
         }
       }
+      if(resposta && resposta.status === 401 && tokenLimpo && urlAlvo.indexOf("token=") === -1){
+        var urlComQuery = urlAlvo + (urlAlvo.indexOf("?") === -1 ? "?" : "&") + "token=" + encodeURIComponent(tokenLimpo);
+        try{
+          resposta = await executarFetchApi(urlComQuery, "POST", headers, corpo, sinal);
+        }catch(errQuery){}
+      }
     }catch(err){
       throw erroApi("rede", err && err.name === "AbortError"
         ? "A API não respondeu em " + (API_TIMEOUT_MS / 1000) + " s."
@@ -547,8 +770,7 @@
     }finally{
       clearTimeout(timer);
     }
-    var dados = null;
-    try{ dados = await resposta.json(); }catch(err){ dados = null; }
+    var dados = await lerCorpoResposta(resposta);
     if(!resposta.ok) throw erroApi("http", mensagemHttp(resposta.status, dados));
     state.api = { status: "online", detalhe: "Conectado à API (" + urlAlvo + ")." };
     renderBadgeApi();
@@ -699,7 +921,7 @@
       return;
     }
     el.hidden = false;
-    el.innerHTML = '<div><strong>Token Bearer pendente.</strong> Gere seu token no <em>Kasper AI Studio</em> e configure a conexão para realizar predições na API.</div>' +
+    el.innerHTML = '<div><strong>Token Bearer pendente.</strong> Gere seu token no <a href="https://kasper-ai-studio.vercel.app/login" target="_blank" rel="noopener noreferrer" class="btn-link">Kasper AI Studio ↗</a> e configure a conexão para realizar predições na API.</div>' +
       '<button type="button" class="btn-link js-abrir-api-config">Configurar API &amp; Token</button>';
   }
 
@@ -707,13 +929,13 @@
     var atual = state.apiConfig || { url: API_BASE_URL, token: "" };
     abrirModal(
       '<h2 id="modal-title">Configurar API &amp; Token Bearer</h2>' +
-      '<p class="modal-sub">Insira o <strong>Token Bearer</strong> gerado no <em>Kasper AI Studio</em> e confirme o endereço do endpoint (sem porta travada no código).</p>' +
+      '<p class="modal-sub">Gere sua chave em <a href="https://kasper-ai-studio.vercel.app/login" target="_blank" rel="noopener noreferrer" class="btn-link">Kasper AI Studio (kasper-ai-studio.vercel.app) ↗</a>, cole abaixo e confirme o endpoint.</p>' +
       '<form id="form-api-config">' +
         '<div class="form-grid single">' +
           '<div class="field">' +
             '<label for="cfg-token">Token Bearer (Kasper AI Studio)</label>' +
-            '<input id="cfg-token" type="text" class="input-mono" placeholder="Cole aqui o token gerado (ex: eyJhbGciOi...)" value="' + escapeHtml(atual.token || "") + '" autocomplete="off" spellcheck="false" />' +
-            '<span class="field-hint">Enviado no cabeçalho HTTP como <code>Authorization: Bearer &lt;token&gt;</code>.</span>' +
+            '<input id="cfg-token" type="text" class="input-mono" placeholder="Cole aqui o token gerado (ex: edupredict_sk_...)" value="' + escapeHtml(atual.token || "") + '" autocomplete="off" spellcheck="false" />' +
+            '<span class="field-hint">Enviado como <code>Authorization: Bearer &lt;token&gt;</code> e <code>X-API-KEY</code>.</span>' +
           '</div>' +
           '<div class="field">' +
             '<label for="cfg-url">URL do Endpoint de Predição</label>' +
@@ -723,14 +945,15 @@
               '<button type="button" class="preset-chip js-preset-url" data-url="/api/v1/predictions">Vercel Proxy (/api/v1/predictions)</button>' +
               '<button type="button" class="preset-chip js-preset-url" data-url="http://52.67.241.122:8080/api/v1/predictions">Kasper API (:8080)</button>' +
               '<button type="button" class="preset-chip js-preset-url" data-url="http://52.67.241.122/api/v1/predictions">Kasper API (Sem porta)</button>' +
-              '<button type="button" class="preset-chip js-preset-url" data-url="http://52.67.241.122:8080/api/v1/predictions">Kasper API (:8080)</button>' +
               '<button type="button" class="preset-chip js-preset-url" data-url="http://56.126.10.158:8000/predict">ML Direto (:8000)</button>' +
               '<button type="button" class="preset-chip js-preset-url" data-url="http://127.0.0.1:8000/predict">Localhost</button>' +
             '</div>' +
           '</div>' +
+          '<div id="api-diag-box" class="api-diag-box" role="status" hidden></div>' +
         '</div>' +
         '<div class="form-actions">' +
           '<button type="button" class="btn btn-secondary" id="btn-cancelar-modal">Cancelar</button>' +
+          '<button type="button" class="btn btn-secondary" id="btn-testar-api">Testar Token &amp; Conexão</button>' +
           '<button type="submit" class="btn btn-primary">Salvar e Conectar</button>' +
         '</div>' +
       '</form>'
@@ -741,6 +964,68 @@
       btn.addEventListener("click", function(){
         document.getElementById("cfg-url").value = btn.getAttribute("data-url");
       });
+    });
+
+    document.getElementById("btn-testar-api").addEventListener("click", async function(){
+      var diagBox = document.getElementById("api-diag-box");
+      var btnTestar = document.getElementById("btn-testar-api");
+      var urlDigitada = document.getElementById("cfg-url").value.trim() || API_BASE_URL;
+      var tokenDigitado = limparTokenBearer(document.getElementById("cfg-token").value);
+      diagBox.hidden = false;
+      diagBox.className = "api-diag-box";
+      diagBox.innerHTML = "Testando comunicação com a API…";
+      btnTestar.disabled = true;
+
+      var configAnterior = state.apiConfig;
+      state.apiConfig = { url: normalizarUrlConfig(urlDigitada), token: tokenDigitado };
+      var urlEfetiva = obterUrlApi("/predict");
+      var headers = montarHeadersApi();
+
+      var featuresTeste = Object.assign({}, PERFIS_EXEMPLO.alto.dados);
+      featuresTeste.course = converterCodigoUciParaIndice("course", featuresTeste.course) || 2;
+      ["application_mode","previous_qualification","nationality","mothers_qualification","fathers_qualification","mothers_occupation","fathers_occupation"].forEach(function(k){
+        featuresTeste[k] = converterCodigoUciParaIndice(k, featuresTeste[k]) || 1;
+      });
+      var macroAtual = state.macro || { unemployment_rate: 10.8, inflation_rate: 1.4, gdp: 1.74 };
+      featuresTeste.unemployment_rate = macroAtual.unemployment_rate;
+      featuresTeste.inflation_rate = macroAtual.inflation_rate;
+      featuresTeste.gdp = macroAtual.gdp;
+
+      var corpoTeste = { studentId: "TESTE-CONEXAO", features: featuresTeste };
+      try{
+        var resp = await executarFetchApi(urlEfetiva, "POST", headers, corpoTeste);
+        var corpoResp = await lerCorpoResposta(resp);
+        var msgServidor = corpoResp && (corpoResp.message || corpoResp.detail || corpoResp.error || corpoResp.erro)
+          ? String(corpoResp.message || corpoResp.detail || corpoResp.error || corpoResp.erro)
+          : "";
+        if(resp.ok){
+          diagBox.className = "api-diag-box ok";
+          diagBox.innerHTML = '<strong>✔ Conexão e Token validados (HTTP ' + resp.status + ')!</strong><br>' +
+            'O endpoint <code>' + escapeHtml(urlEfetiva) + '</code> aceitou o Token Bearer e retornou a predição normalmente.';
+        }else if(resp.status === 401){
+          diagBox.className = "api-diag-box erro";
+          diagBox.innerHTML = '<strong>✖ Token recusado pela API (HTTP 401)</strong><br>' +
+            'A plataforma conectou corretamente em <code>' + escapeHtml(urlEfetiva) + '</code>, mas a API respondeu: ' +
+            '<em>' + escapeHtml(msgServidor || "Token inválido ou não encontrado no banco da API") + '</em>.<br>' +
+            '<strong>O que fazer:</strong> Abra o <em>Kasper AI Studio</em>, gere um novo Token Bearer e cole no campo acima.';
+        }else if(resp.status === 403){
+          diagBox.className = "api-diag-box erro";
+          diagBox.innerHTML = '<strong>✖ Bloqueio de CORS ou permissão (HTTP 403)</strong><br>' +
+            'O servidor respondeu: <em>' + escapeHtml(msgServidor || "Invalid CORS request") + '</em>. ' +
+            'Confirme se o domínio atual está autorizado no CORS da API.';
+        }else{
+          diagBox.className = "api-diag-box erro";
+          diagBox.innerHTML = '<strong>✖ A API retornou HTTP ' + resp.status + '</strong><br>' +
+            escapeHtml(msgServidor || "Verifique se o serviço de Machine Learning está ativo.");
+        }
+      }catch(errRede){
+        diagBox.className = "api-diag-box erro";
+        diagBox.innerHTML = '<strong>✖ Falha de conexão com <code>' + escapeHtml(urlEfetiva) + '</code></strong><br>' +
+          'Não foi possível estabelecer conexão HTTP. Na Vercel (HTTPS), utilize o atalho <code>/api/v1/predictions</code>.';
+      }finally{
+        state.apiConfig = configAnterior;
+        btnTestar.disabled = false;
+      }
     });
 
     document.getElementById("form-api-config").addEventListener("submit", function(e){
@@ -1236,7 +1521,9 @@
     }else if(state.lote.status === "erro"){
       el.hidden = false;
       el.className = "api-status erro";
-      el.innerHTML = '<strong>Predição indisponível.</strong> ' + escapeHtml(state.lote.erro || "") + ' <button type="button" class="btn-link js-tentar-lote">Tentar novamente</button>';
+      el.innerHTML = '<strong>Predição indisponível.</strong> ' + escapeHtml(state.lote.erro || "") +
+        ' <button type="button" class="btn-link js-tentar-lote">Tentar novamente</button>' +
+        ' <button type="button" class="btn-link js-abrir-api-config" style="margin-left:10px;">Trocar Token Bearer</button>';
     }else{
       el.hidden = true;
       el.innerHTML = "";
@@ -1449,10 +1736,55 @@
     return '<div class="prediction-pending"><strong>Previsão ainda não calculada</strong><p>Os dados estão completos. Clique em &ldquo;Prever risco&rdquo; para consultar o modelo.</p>' + botao("Prever risco", false) + '</div>';
   }
 
+  function rotuloSimNao(v){
+    if(v === 1) return "1 (Sim)";
+    if(v === 0) return "0 (Não)";
+    return "—";
+  }
+
+  function rotuloEstadoCivil(v){
+    var item = OPCOES_SIMPLES.marital_status.find(function(o){ return o.codigo === v; });
+    return item ? (v + " (" + item.rotulo + ")") : (v == null ? "—" : String(v));
+  }
+
+  function renderPayloadPreview(aluno){
+    if(camposFaltantes(aluno).length > 0) return "";
+    try{
+      var payloadCompleto = montarPayload(aluno);
+      var f = payloadCompleto.features;
+      var payloadDaniel13 = {
+        studentId: payloadCompleto.studentId,
+        features: {
+          marital_status: f.marital_status,
+          course: f.course,
+          debtor: f.debtor,
+          tuition_fees_up_to_date: f.tuition_fees_up_to_date,
+          scholarship_holder: f.scholarship_holder,
+          age_at_enrollment: f.age_at_enrollment,
+          curricular_units_1st_sem_enrolled: f.curricular_units_1st_sem_enrolled,
+          curricular_units_1st_sem_approved: f.curricular_units_1st_sem_approved,
+          curricular_units_1st_sem_grade: f.curricular_units_1st_sem_grade,
+          curricular_units_2nd_sem_enrolled: f.curricular_units_2nd_sem_enrolled,
+          curricular_units_2nd_sem_approved: f.curricular_units_2nd_sem_approved,
+          curricular_units_2nd_sem_grade: f.curricular_units_2nd_sem_grade,
+          unemployment_rate: f.unemployment_rate
+        }
+      };
+      return '<details class="payload-preview">' +
+        '<summary>Ver JSON do Payload enviado à API (<code>/api/v1/predictions</code>)</summary>' +
+        '<pre class="payload-code">' + escapeHtml(JSON.stringify(payloadDaniel13, null, 2)) + '</pre>' +
+      '</details>';
+    }catch(err){
+      return "";
+    }
+  }
+
   function renderDetalhe(aluno){
     var el = document.getElementById("detail-content");
     var dados = aluno.dadosPredicao || {};
     var preenchidos = CAMPOS_PREDICAO.length - camposFaltantes(aluno).length;
+    var codModeloCurso = aluno.cursoCodigo ? converterCodigoUciParaIndice("course", aluno.cursoCodigo) : null;
+    var unempVal = valorDoCampo(aluno, campoMacro("unemployment_rate"));
 
     el.innerHTML =
       '<div class="detail-grid">' +
@@ -1464,14 +1796,24 @@
             '</div>' +
           '</div>' +
           '<div class="meta-grid">' +
-            '<div class="meta-item"><span class="meta-label">Curso</span><strong class="meta-value">' + escapeHtml(aluno.curso) + '</strong></div>' +
-            '<div class="meta-item"><span class="meta-label">Turno</span><strong class="meta-value">' + escapeHtml(aluno.turno || "Não informado") + '</strong></div>' +
-            '<div class="meta-item"><span class="meta-label">Data de matrícula</span><strong class="meta-value">' + formatarData(aluno.dataMatricula) + '</strong></div>' +
-            '<div class="meta-item"><span class="meta-label">Idade na matrícula</span><strong class="meta-value">' + (dados.age_at_enrollment == null ? "—" : dados.age_at_enrollment + " anos") + '</strong></div>' +
             '<div class="meta-item"><span class="meta-label">ID na API (studentId)</span><strong class="meta-value">' + escapeHtml(aluno.studentId || aluno.id) + '</strong></div>' +
-            '<div class="meta-item"><span class="meta-label">Preenchimento do modelo</span><strong class="meta-value">' + preenchidos + ' de ' + CAMPOS_PREDICAO.length + ' campos (cód. UCI ' + (aluno.cursoCodigo == null ? "—" : aluno.cursoCodigo) + ')</strong></div>' +
-            '<div class="meta-item meta-item-wide"><span class="meta-label">Indicadores macroeconômicos (globais)</span><strong class="meta-value">' + escapeHtml(textoMacro()) + '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">Curso (course)</span><strong class="meta-value">' + (codModeloCurso ? "Cód. " + codModeloCurso + " — " : "") + escapeHtml(aluno.curso) + '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">Estado civil (marital_status)</span><strong class="meta-value">' + escapeHtml(rotuloEstadoCivil(dados.marital_status)) + '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">Idade na matrícula (age_at_enrollment)</span><strong class="meta-value">' + (dados.age_at_enrollment == null ? "—" : dados.age_at_enrollment + " anos") + '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">Possui dívida (debtor)</span><strong class="meta-value">' + escapeHtml(rotuloSimNao(dados.debtor)) + '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">Mensalidades em dia (tuition_fees)</span><strong class="meta-value">' + escapeHtml(rotuloSimNao(dados.tuition_fees_up_to_date)) + '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">Bolsista (scholarship_holder)</span><strong class="meta-value">' + escapeHtml(rotuloSimNao(dados.scholarship_holder)) + '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">Taxa de desemprego (unemployment_rate)</span><strong class="meta-value">' + (unempVal == null ? "—" : formatarNumeroBR(unempVal) + "%") + '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">1º Semestre (enrolled / approved / grade)</span><strong class="meta-value">' +
+              (dados.curricular_units_1st_sem_enrolled == null ? "—" : dados.curricular_units_1st_sem_enrolled + " matr. · " + (dados.curricular_units_1st_sem_approved || 0) + " aprov. · Nota " + formatarNumeroBR(dados.curricular_units_1st_sem_grade || 0)) +
+            '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">2º Semestre (enrolled / approved / grade)</span><strong class="meta-value">' +
+              (dados.curricular_units_2nd_sem_enrolled == null ? "—" : dados.curricular_units_2nd_sem_enrolled + " matr. · " + (dados.curricular_units_2nd_sem_approved || 0) + " aprov. · Nota " + formatarNumeroBR(dados.curricular_units_2nd_sem_grade || 0)) +
+            '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">Turno / Matrícula</span><strong class="meta-value">' + escapeHtml(aluno.turno || "Não informado") + " · " + formatarData(aluno.dataMatricula) + '</strong></div>' +
+            '<div class="meta-item"><span class="meta-label">Preenchimento do modelo</span><strong class="meta-value">' + preenchidos + ' de ' + CAMPOS_PREDICAO.length + ' atributos prontos</strong></div>' +
           '</div>' +
+          renderPayloadPreview(aluno) +
           '<div class="academic-summary"><h3>Acompanhamento acadêmico</h3>' +
             '<div class="academic-grid">' +
               '<div class="academic-item"><span>Frequência</span><strong>' + (aluno.frequencia == null ? "Pendente" : Number(aluno.frequencia).toFixed(1).replace(".", ",") + "%") + '</strong></div>' +
@@ -1534,36 +1876,78 @@
     elementoComFocoAntesDoModal = null;
   }
 
+  function criarAlunoDeExemploDaniel(ex){
+    var cursoObj = cursoPorCodigo(ex.cursoCodigoUci) || CURSOS_DISPONIVEIS[1];
+    var dadosPredicao = Object.assign({}, DEFAULTS_SECUNDARIOS_UCI, ex.dados);
+    dadosPredicao.daytime_evening_attendance = ex.turno === "Noturno" ? 0 : 1;
+    dadosPredicao.curricular_units_1st_sem_evaluations = dadosPredicao.curricular_units_1st_sem_enrolled;
+    dadosPredicao.curricular_units_2nd_sem_evaluations = dadosPredicao.curricular_units_2nd_sem_enrolled;
+    return {
+      id: gerarId(),
+      studentId: ex.studentId,
+      nome: ex.nomeSugerido,
+      email: ex.emailSugerido,
+      cursoCodigo: cursoObj.codigo,
+      curso: cursoObj.nome,
+      dataMatricula: hojeISO(),
+      turno: ex.turno || "Diurno",
+      frequencia: ex.frequencia,
+      media: ex.media,
+      disciplinasReprovadas: ex.reprovadas,
+      unemploymentRate: ex.unemployment_rate,
+      dadosPredicao: dadosPredicao,
+      versaoDados: VERSAO_DADOS,
+      status: "ativo"
+    };
+  }
+
   function abrirModalNovoAluno(){
-    var proximoNum = String(state.alunos.length + 1).padStart(3, "0");
-    var sugestaoStudentId = "ALUNO-2026-" + proximoNum;
+    var exPadrao = EXEMPLOS_DANIEL.evasao;
+    var alunoPadraoModal = {
+      cursoCodigo: exPadrao.cursoCodigoUci,
+      turno: exPadrao.turno,
+      dataMatricula: hojeISO(),
+      unemploymentRate: exPadrao.unemployment_rate,
+      dadosPredicao: Object.assign({}, DEFAULTS_SECUNDARIOS_UCI, exPadrao.dados)
+    };
 
     abrirModal(
-      '<h2 id="modal-title">Matricular aluno</h2>' +
-      '<p class="modal-sub">Cadastre o estudante para acompanhamento e envio do payload de predição à API.</p>' +
+      '<h2 id="modal-title">Matricular aluno &amp; Dados do Payload</h2>' +
+      '<p class="modal-sub">Preencha os dados cadastrais e os <strong>13 atributos do payload da API</strong> (ou use os atalhos oficiais abaixo).</p>' +
       '<form id="form-novo-aluno">' +
-        '<div class="form-grid">' +
-          '<div class="field"><label for="f-nome">Nome completo</label><input id="f-nome" required placeholder="Ex.: Lucas Ferreira" /></div>' +
-          '<div class="field"><label for="f-email">E-mail</label><input id="f-email" type="email" required placeholder="Ex.: lucas@escola.com" /></div>' +
-          '<div class="field"><label for="f-student-id">ID do aluno na API (studentId)</label><input id="f-student-id" class="input-mono" value="' + escapeHtml(sugestaoStudentId) + '" required /></div>' +
-          '<div class="field"><label for="f-perfil-inicial">Preenchimento dos 34 atributos do modelo</label>' +
-            '<select id="f-perfil-inicial">' +
-              '<option value="alto" selected>Cenário Crítico (Alto Risco de Evasão — pronto para prever)</option>' +
-              '<option value="medio">Cenário Intermediário (Médio Risco — pronto para prever)</option>' +
-              '<option value="baixo">Cenário Destaque (Baixo Risco / Permanência — pronto para prever)</option>' +
-              '<option value="">Em branco (preencher manualmente em Editar dados)</option>' +
-            '</select>' +
+        '<fieldset class="form-section form-section-first"><legend>Identificação do estudante</legend>' +
+          '<div class="form-grid">' +
+            '<div class="field"><label for="f-nome">Nome completo</label><input id="f-nome" required placeholder="Ex.: Lucas Ferreira" /></div>' +
+            '<div class="field"><label for="f-email">E-mail</label><input id="f-email" type="email" required placeholder="Ex.: lucas@escola.com" /></div>' +
+            '<div class="field"><label for="f-student-id">ID do aluno na API (<code>studentId</code>)</label><input id="f-student-id" class="input-mono" value="' + escapeHtml(exPadrao.studentId) + '" required /></div>' +
           '</div>' +
-        '</div>' +
-        renderCamposIngresso("f", null) +
+        '</fieldset>' +
+        renderCamposIngresso("f", alunoPadraoModal) +
+        renderCamposEssenciaisDaniel("f", alunoPadraoModal) +
         '<div class="form-actions">' +
           '<button type="button" class="btn btn-secondary" id="btn-cancelar-modal">Cancelar</button>' +
-          '<button type="submit" class="btn btn-primary">Matricular aluno</button>' +
+          '<button type="button" class="btn btn-secondary" id="btn-carregar-dupla-daniel" title="Cadastra ALUNO-001-CRITICO e ALUNO-002-DESTAQUE de uma só vez">Carregar Dupla de Lote (2 Alunos)</button>' +
+          '<button type="submit" class="btn btn-primary">Matricular e Prever Evasão</button>' +
         '</div>' +
       '</form>'
     );
 
     document.getElementById("btn-cancelar-modal").addEventListener("click", fecharModal);
+    document.getElementById("btn-carregar-dupla-daniel").addEventListener("click", function(){
+      var a1 = criarAlunoDeExemploDaniel(EXEMPLOS_DANIEL.critico1);
+      var a2 = criarAlunoDeExemploDaniel(EXEMPLOS_DANIEL.destaque2);
+      state.alunos = state.alunos.filter(function(a){
+        return a.studentId !== a1.studentId && a.studentId !== a2.studentId && a.email !== a1.email && a.email !== a2.email;
+      });
+      state.alunos.push(a1, a2);
+      if(!salvarDados()) return;
+      fecharModal();
+      fecharDetalhe();
+      renderLista();
+      mostrarToast("Dupla do lote (ALUNO-001-CRITICO e ALUNO-002-DESTAQUE) matriculada!");
+      atualizarLote();
+    });
+
     document.getElementById("form-novo-aluno").addEventListener("submit", function(e){
       e.preventDefault();
       var emailDigitado = document.getElementById("f-email").value.trim().toLowerCase();
@@ -1576,23 +1960,21 @@
         return;
       }
       var ingresso = lerDadosIngresso("f", null);
-      var chavePerfil = document.getElementById("f-perfil-inicial").value;
-      var studentIdDigitado = document.getElementById("f-student-id").value.trim() || sugestaoStudentId;
-      var dadosPredicao = {};
-      var freq = null, med = null, repr = null;
-
-      if(chavePerfil && PERFIS_EXEMPLO[chavePerfil]){
-        dadosPredicao = Object.assign({}, PERFIS_EXEMPLO[chavePerfil].dados);
-        delete dadosPredicao.course;
-        CAMPOS_MACRO.forEach(function(chave){ delete dadosPredicao[chave]; });
-        if(chavePerfil === "alto"){ freq = 52; med = 4.2; repr = 4; }
-        else if(chavePerfil === "medio"){ freq = 68; med = 5.5; repr = 2; }
-        else if(chavePerfil === "baixo"){ freq = 88; med = 7.8; repr = 0; }
-      }
+      var studentIdDigitado = document.getElementById("f-student-id").value.trim() || "ALUNO-RISCO-EVASAO";
+      var dadosPredicao = lerFormularioPredicao("f");
+      var unempInd = lerUnemploymentRateIndividual("f");
 
       var turnoEscolhido = document.getElementById("f-turno").value;
       if(turnoEscolhido === "Diurno") dadosPredicao.daytime_evening_attendance = 1;
       else if(turnoEscolhido === "Noturno") dadosPredicao.daytime_evening_attendance = 0;
+
+      // Calcula indicadores visuais de acompanhamento a partir das notas/aprovações informadas nos 13 campos
+      var matrTotal = (dadosPredicao.curricular_units_1st_sem_enrolled || 0) + (dadosPredicao.curricular_units_2nd_sem_enrolled || 0);
+      var aprovTotal = (dadosPredicao.curricular_units_1st_sem_approved || 0) + (dadosPredicao.curricular_units_2nd_sem_approved || 0);
+      var reprCalculadas = Math.max(0, matrTotal - aprovTotal);
+      var media20 = ((dadosPredicao.curricular_units_1st_sem_grade || 0) + (dadosPredicao.curricular_units_2nd_sem_grade || 0)) / 2;
+      var media10 = Number((media20 / 2).toFixed(1));
+      var freqEstimada = matrTotal > 0 ? Math.round(50 + (aprovTotal / matrTotal) * 44) : 75;
 
       var novo = {
         id: gerarId(),
@@ -1603,9 +1985,10 @@
         curso: ingresso.curso,
         dataMatricula: ingresso.dataMatricula,
         turno: turnoEscolhido,
-        frequencia: freq,
-        media: med,
-        disciplinasReprovadas: repr,
+        frequencia: freqEstimada,
+        media: media10,
+        disciplinasReprovadas: reprCalculadas,
+        unemploymentRate: unempInd,
         dadosPredicao: dadosPredicao,
         versaoDados: VERSAO_DADOS,
         status: "ativo"
@@ -1619,11 +2002,9 @@
       renderLista();
       fecharModal();
       mostrarToast("Aluno matriculado com sucesso.");
-      if(chavePerfil){
-        abrirDetalhe(novo.id);
-        if(state.apiConfig && state.apiConfig.token){
-          executarPrevisaoDetalhe(novo.id);
-        }
+      abrirDetalhe(novo.id);
+      if(state.apiConfig && state.apiConfig.token){
+        executarPrevisaoDetalhe(novo.id);
       }
     });
   }
@@ -1634,11 +2015,12 @@
 
     abrirModal(
       '<h2 id="modal-title">Editar aluno</h2>' +
-      '<p class="modal-sub">Atualize os dados cadastrais, os dados para predição e os indicadores acadêmicos.</p>' +
+      '<p class="modal-sub">Atualize os dados cadastrais, os 13 atributos do payload da API e os indicadores acadêmicos.</p>' +
       '<form id="form-editar-aluno">' +
         '<fieldset class="form-section form-section-first"><legend>Dados cadastrais</legend><div class="form-grid">' +
           '<div class="field"><label for="e-nome">Nome completo</label><input id="e-nome" value="' + escapeHtml(aluno.nome) + '" required /></div>' +
           '<div class="field"><label for="e-email">E-mail</label><input id="e-email" type="email" value="' + escapeHtml(aluno.email) + '" required /></div>' +
+          '<div class="field"><label for="e-student-id">ID do aluno na API (<code>studentId</code>)</label><input id="e-student-id" class="input-mono" value="' + escapeHtml(aluno.studentId || aluno.id) + '" required /></div>' +
         '</div></fieldset>' +
         renderCamposIngresso("e", aluno) +
         renderCamposPredicao("e", aluno) +
@@ -1664,9 +2046,13 @@
       }
       aluno.nome = document.getElementById("e-nome").value.trim();
       aluno.email = document.getElementById("e-email").value.trim();
+      var elStudentId = document.getElementById("e-student-id");
+      if(elStudentId && elStudentId.value.trim()) aluno.studentId = elStudentId.value.trim();
       var ingresso = lerDadosIngresso("e", aluno);
       Object.keys(ingresso).forEach(function(chave){ aluno[chave] = ingresso[chave]; });
       aluno.dadosPredicao = lerFormularioPredicao("e");
+      var unempInd = lerUnemploymentRateIndividual("e");
+      if(unempInd != null) aluno.unemploymentRate = unempInd;
       sincronizarTurno(aluno);
       var academicos = lerDadosAcademicos("e");
       Object.keys(academicos).forEach(function(chave){ aluno[chave] = academicos[chave]; });
@@ -1797,6 +2183,9 @@
 
     var prever = e.target.closest(".js-prever");
     if(prever){ executarPrevisaoDetalhe(prever.getAttribute("data-id")); return; }
+
+    var exemploDaniel = e.target.closest(".js-exemplo-daniel");
+    if(exemploDaniel){ preencherExemploDaniel(exemploDaniel.getAttribute("data-prefixo"), exemploDaniel.getAttribute("data-exemplo")); return; }
 
     var exemplo = e.target.closest(".js-exemplo");
     if(exemplo){ preencherPerfilExemplo(exemplo.getAttribute("data-prefixo"), exemplo.getAttribute("data-perfil")); return; }

@@ -3,9 +3,22 @@
 
   /* ---------------- configuração da API de predição ---------------- */
 
-  // Endereço padrão da API (editável em tempo de execução no modal "Configurar API & Token", sem porta hardcodada).
-  var API_BASE_URL = "http://52.67.241.122/api/v1/predictions";
+  // Em HTTPS (Vercel), utiliza a rota relativa /api/v1/predictions mapeada pelo vercel.json.
+  var EM_HTTPS = typeof window !== "undefined" && window.location && window.location.protocol === "https:";
+  var API_BASE_URL = EM_HTTPS ? "/api/v1/predictions" : "http://52.67.241.122:8080/api/v1/predictions";
   var API_CONFIG_KEY = "config-api";
+
+  function normalizarUrlConfig(urlRaw){
+    var u = (typeof urlRaw === "string" && urlRaw.trim()) ? urlRaw.trim() : API_BASE_URL;
+    // Corrige automaticamente URL antiga sem porta que batia na porta 80
+    if(u === "http://52.67.241.122/api/v1/predictions"){
+      u = EM_HTTPS ? "/api/v1/predictions" : "http://52.67.241.122:8080/api/v1/predictions";
+    }
+    if(EM_HTTPS && /^http:\/\/52\.67\.241\.122(:\d+)?\/api\//i.test(u)){
+      u = u.replace(/^http:\/\/52\.67\.241\.122(:\d+)?/i, "");
+    }
+    return u;
+  }
   var API_TIMEOUT_MS = 20000;
   var VERSAO_DADOS = 5;
   var LEGENDA_MODELO = "Predição do modelo (Regressão Logística, acurácia 86,67%) — estimativa estatística, não certeza.";
@@ -92,17 +105,19 @@
         var raw = localStorage.getItem(API_CONFIG_KEY);
         if(!raw) return { url: API_BASE_URL, token: "" };
         var parsed = JSON.parse(raw);
-        return {
-          url: (parsed && typeof parsed.url === "string" && parsed.url.trim()) ? parsed.url.trim() : API_BASE_URL,
+        var carregado = {
+          url: normalizarUrlConfig(parsed && parsed.url),
           token: (parsed && typeof parsed.token === "string") ? parsed.token.trim().replace(/^Bearer\s+/i, "") : ""
         };
+        localStorage.setItem(API_CONFIG_KEY, JSON.stringify(carregado));
+        return carregado;
       }catch(err){
         return { url: API_BASE_URL, token: "" };
       }
     },
     salvar: function(config){
       var limpo = {
-        url: (config && typeof config.url === "string" && config.url.trim()) ? config.url.trim() : API_BASE_URL,
+        url: normalizarUrlConfig(config && config.url),
         token: (config && typeof config.token === "string") ? config.token.trim().replace(/^Bearer\s+/i, "") : ""
       };
       localStorage.setItem(API_CONFIG_KEY, JSON.stringify(limpo));
@@ -449,17 +464,21 @@
   }
 
   function obterUrlApi(caminho){
-    var urlConfigurada = (state.apiConfig && state.apiConfig.url ? state.apiConfig.url : API_BASE_URL).trim().replace(/\/+$/, "");
+    var urlConfigurada = normalizarUrlConfig(state.apiConfig && state.apiConfig.url ? state.apiConfig.url : API_BASE_URL).replace(/\/+$/, "");
+    // Em HTTPS (Vercel), converte qualquer URL HTTP para o caminho relativo /api/... tratado pelo vercel.json
+    if(EM_HTTPS && /^http:\/\/[^\/]+(\/api\/.*)$/i.test(urlConfigurada)){
+      urlConfigurada = urlConfigurada.replace(/^http:\/\/[^\/]+/i, "");
+    }
     if(!caminho || caminho === "/predict" || caminho === "/predictions" || caminho === "/api/v1/predictions"){
       if(/\/(predict|predictions)$/i.test(urlConfigurada)) return urlConfigurada;
       return urlConfigurada + (caminho || "/api/v1/predictions");
     }
     var raiz = urlConfigurada.replace(/\/(api\/v1\/predictions|predictions|predict)$/i, "");
-    return raiz + caminho;
+    return (raiz || "") + caminho;
   }
 
   function montarHeadersApi(){
-    var headers = { "Content-Type": "application/json" };
+    var headers = { "Content-Type": "application/json", "Accept": "application/json" };
     var token = state.apiConfig && state.apiConfig.token ? state.apiConfig.token.trim() : "";
     if(token){
       headers["Authorization"] = /^Bearer\s+/i.test(token) ? token : ("Bearer " + token);
@@ -484,20 +503,6 @@
   }
 
   async function executarFetchApi(urlAlvo, metodo, headers, corpo, sinal){
-    var emHttps = typeof window !== "undefined" && window.location && window.location.protocol === "https:";
-    var alvoHttp = /^http:\/\//i.test(urlAlvo);
-    if(emHttps && alvoHttp){
-      var proxyHeaders = Object.assign({}, headers, {
-        "X-Target-Url": urlAlvo,
-        "X-Http-Method": metodo
-      });
-      return fetch("/api/proxy", {
-        method: "POST",
-        headers: proxyHeaders,
-        body: metodo !== "GET" && corpo != null ? JSON.stringify(corpo) : undefined,
-        signal: sinal
-      });
-    }
     return fetch(urlAlvo, {
       method: metodo,
       headers: headers,
@@ -712,7 +717,7 @@
           '</div>' +
           '<div class="field">' +
             '<label for="cfg-url">URL do Endpoint de Predição</label>' +
-            '<input id="cfg-url" type="url" class="input-mono" value="' + escapeHtml(atual.url || API_BASE_URL) + '" required spellcheck="false" />' +
+            '<input id="cfg-url" type="text" class="input-mono" value="' + escapeHtml(atual.url || API_BASE_URL) + '" required spellcheck="false" />' +
             '<span class="field-hint">Você pode informar qualquer IP, domínio ou porta. Atalhos rápidos:</span>' +
             '<div class="preset-chips">' +
               '<button type="button" class="preset-chip js-preset-url" data-url="/api/v1/predictions">Vercel Proxy (/api/v1/predictions)</button>' +

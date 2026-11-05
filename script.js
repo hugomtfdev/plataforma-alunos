@@ -715,7 +715,9 @@
             '<input id="cfg-url" type="url" class="input-mono" value="' + escapeHtml(atual.url || API_BASE_URL) + '" required spellcheck="false" />' +
             '<span class="field-hint">Você pode informar qualquer IP, domínio ou porta. Atalhos rápidos:</span>' +
             '<div class="preset-chips">' +
-              '<button type="button" class="preset-chip js-preset-url" data-url="http://52.67.241.122/api/v1/predictions">Kasper API (Sem porta / Padrão)</button>' +
+              '<button type="button" class="preset-chip js-preset-url" data-url="/api/v1/predictions">Vercel Proxy (/api/v1/predictions)</button>' +
+              '<button type="button" class="preset-chip js-preset-url" data-url="http://52.67.241.122:8080/api/v1/predictions">Kasper API (:8080)</button>' +
+              '<button type="button" class="preset-chip js-preset-url" data-url="http://52.67.241.122/api/v1/predictions">Kasper API (Sem porta)</button>' +
               '<button type="button" class="preset-chip js-preset-url" data-url="http://52.67.241.122:8080/api/v1/predictions">Kasper API (:8080)</button>' +
               '<button type="button" class="preset-chip js-preset-url" data-url="http://56.126.10.158:8000/predict">ML Direto (:8000)</button>' +
               '<button type="button" class="preset-chip js-preset-url" data-url="http://127.0.0.1:8000/predict">Localhost</button>' +

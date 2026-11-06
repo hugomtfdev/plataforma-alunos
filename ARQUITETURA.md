@@ -1,5 +1,9 @@
 # Documentação Técnica e Arquitetura do Sistema
 
+> Atualização de integração: consulte [Integração atual](docs/INTEGRACAO_ATUAL.md)
+> e [exemplo completo do Kaique](docs/payload-kaique.json). As referências abaixo
+> à conexão direta com FastAPI descrevem a arquitetura anterior ao gateway Kasper.
+
 Documento interno de engenharia contendo decisões de arquitetura (ADRs), especificações de dados, contratos de integração e contexto para desenvolvedores e agentes de IA.
 
 ---

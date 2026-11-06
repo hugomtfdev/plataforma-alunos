@@ -4,6 +4,24 @@
  * (ver converterCodigoUciParaIndice em script.js). NAO reordene nem remova itens.
  * Gerado a partir de manual.md (secao 13); perfis de exemplo extraidos de linhas reais
  * de data/student-dropout-dataset.csv (categoricos convertidos de volta para codigo UCI). */
+// Exemplo completo recebido do backend (Kaique). Categóricos já em índices do modelo.
+var PAYLOAD_EXEMPLO_KAIQUE = {
+  studentId: "ALUNO-2026-001",
+  features: {
+    marital_status: 1, application_mode: 8, application_order: 5, course: 2,
+    daytime_evening_attendance: 1, previous_qualification: 1, nationality: 1,
+    mothers_qualification: 13, fathers_qualification: 10, mothers_occupation: 6, fathers_occupation: 10,
+    displaced: 1, educational_special_needs: 0, debtor: 0, tuition_fees_up_to_date: 1,
+    gender: 1, scholarship_holder: 0, age_at_enrollment: 20, international: 0,
+    curricular_units_1st_sem_credited: 0, curricular_units_1st_sem_enrolled: 6,
+    curricular_units_1st_sem_evaluations: 6, curricular_units_1st_sem_approved: 5,
+    curricular_units_1st_sem_grade: 13.5, curricular_units_1st_sem_without_evaluations: 0,
+    curricular_units_2nd_sem_credited: 0, curricular_units_2nd_sem_enrolled: 6,
+    curricular_units_2nd_sem_evaluations: 6, curricular_units_2nd_sem_approved: 5,
+    curricular_units_2nd_sem_grade: 14.0, curricular_units_2nd_sem_without_evaluations: 0,
+    unemployment_rate: 10.8, inflation_rate: 1.4, gdp: 1.74
+  }
+};
 var CATALOGOS = {
   application_mode: [
     { codigo: 1, rotulo: "Primeira fase — contingente geral" },

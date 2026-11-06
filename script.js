@@ -136,6 +136,7 @@
   };
   var sequenciaDetalhe = 0;
   var elementoComFocoAntesDoModal = null;
+  var retornoDoModal = null;
 
   var alunosService = {
     listar: function () {
@@ -260,7 +261,7 @@
     "unemployment_rate"
   ];
 
-  function renderCamposIngresso(prefixo, aluno) {
+  function renderCamposIngresso(prefixo, aluno, identificacao) {
     aluno = aluno || {};
     var cursoSelecionado = Number(aluno.cursoCodigo) || "";
     var cursoOptions = opcoesCurso(cursoSelecionado, aluno.curso);
@@ -273,9 +274,9 @@
       campoTurno = '<div class="field"><label for="' + prefixo + '-turno">Turno</label><select id="' + prefixo + '-turno" required>' + turnoOptions + '</select></div>';
     }
 
-    return '<fieldset class="form-section">' +
-      '<legend>Dados de matrícula</legend>' +
-      '<div class="form-grid">' +
+    return '<fieldset class="form-section' + (identificacao ? ' form-section-first' : '') + '">' +
+      '<legend>' + (identificacao ? 'Identificação e matrícula' : 'Dados de matrícula') + '</legend>' +
+      '<div class="form-grid">' + (identificacao || '') +
       '<div class="field"><label for="' + prefixo + '-curso">Curso</label><select id="' + prefixo + '-curso" required>' + cursoOptions + '</select></div>' +
       campoTurno +
       '<div class="field"><label for="' + prefixo + '-data">Data de matrícula</label><input id="' + prefixo + '-data" type="date" value="' + escapeHtml(aluno.dataMatricula || hojeISO()) + '" required /></div>' +
@@ -336,7 +337,7 @@
     return valor == null || valor === "" ? null : valor;
   }
 
-  function renderCampoPredicao(prefixo, campo, aluno) {
+  function renderCampoPredicao(prefixo, campo, aluno, ocultarChave) {
     var id = prefixo + "-p-" + campo.chave;
     var valor = valorDoCampo(aluno, campo);
     var controle;
@@ -348,7 +349,47 @@
     } else {
       controle = '<input id="' + id + '" type="number" min="' + campo.min + '" max="' + campo.max + '" step="' + (campo.tipo === "inteiro" ? "1" : "any") + '" value="' + (valor == null ? "" : valor) + '" />';
     }
-    return '<div class="field"><label for="' + id + '">' + escapeHtml(campo.rotulo) + ' <code class="field-code">' + escapeHtml(campo.chave) + '</code></label>' + controle + '</div>';
+    return '<div class="field"><label for="' + id + '">' + escapeHtml(campo.rotulo) + (ocultarChave ? '' : ' <code class="field-code">' + escapeHtml(campo.chave) + '</code>') + '</label>' + controle + '</div>';
+  }
+
+  // Organização visual da matrícula. O esquema e a leitura dos valores continuam compartilhados.
+  function renderGruposMatricula(aluno) {
+    function campos(chaves) {
+      return chaves.map(function (chave) {
+        var campo = CAMPOS_PREDICAO.find(function (c) { return c.chave === chave; });
+        return renderCampoPredicao("f", campo, aluno, true);
+      }).join("");
+    }
+    function secao(titulo, conteudo) {
+      return '<fieldset class="form-section"><legend>' + titulo + '</legend>' + conteudo + '</fieldset>';
+    }
+    function grade(chaves) { return '<div class="form-grid">' + campos(chaves) + '</div>'; }
+
+    var semestres = ["1st", "2nd"].map(function (sem, indice) {
+      var prefixo = "curricular_units_" + sem + "_sem_";
+      return '<div class="enrollment-semester"><h3>' + (indice + 1) + 'º semestre</h3>' +
+        grade(["enrolled", "credited", "approved", "evaluations", "without_evaluations", "grade"].map(function (chave) { return prefixo + chave; })) + '</div>';
+    }).join("");
+    var macro = state.macro || {};
+    var globais = ["inflation_rate", "gdp"].map(function (chave) {
+      return '<div class="meta-item"><span class="meta-label">' + escapeHtml(campoMacro(chave).rotulo) + '</span>' +
+        '<strong class="meta-value" data-matricula-macro="' + chave + '">' +
+        (macro[chave] == null ? 'Não configurado' : formatarNumeroBR(macro[chave]) + '%') + '</strong></div>';
+    }).join("");
+
+    return secao('Perfil e ingresso', grade([
+      'age_at_enrollment', 'marital_status', 'gender', 'nationality', 'international',
+      'application_mode', 'application_order', 'previous_qualification'
+    ])) + secao('Família e condições de apoio', grade([
+      'mothers_qualification', 'fathers_qualification', 'mothers_occupation', 'fathers_occupation',
+      'displaced', 'educational_special_needs'
+    ])) + secao('Situação financeira', grade(['debtor', 'tuition_fees_up_to_date', 'scholarship_holder'])) +
+      secao('Desempenho acadêmico', semestres) +
+      secao('Indicadores macroeconômicos',
+        grade(['unemployment_rate']) +
+        '<div class="enrollment-macro"><div class="meta-grid">' + globais + '</div>' +
+        '<p class="form-section-note">Inflação e PIB são compartilhados por todos os alunos. O desemprego permite um valor individual; se ficar vazio, será usado o indicador global.</p>' +
+        '<button type="button" class="btn btn-secondary btn-sm" id="btn-matricula-macro">Configurar indicadores globais</button></div>');
   }
 
   function renderCamposPrincipais(prefixo, aluno) {
@@ -985,7 +1026,7 @@
       '<button type="button" class="btn-link js-abrir-macro">Configurar agora</button>';
   }
 
-  function abrirModalMacro() {
+  function abrirModalMacro(aoVoltar) {
     var atual = state.macro || {};
     var campos = CAMPOS_PREDICAO.filter(function (c) { return c.global; });
     var inputs = campos.map(function (c) {
@@ -1014,6 +1055,8 @@
       '</div>' +
       '</form>'
     );
+
+    if (typeof aoVoltar === "function") retornoDoModal = aoVoltar;
 
     function lerCampos() {
       var valores = {};
@@ -1786,6 +1829,7 @@
   /* ---------------- modais ---------------- */
 
   function abrirModal(html) {
+    retornoDoModal = null;
     elementoComFocoAntesDoModal = document.activeElement;
     document.getElementById("modal-box").innerHTML = html;
     document.getElementById("modal-overlay").hidden = false;
@@ -1793,12 +1837,15 @@
     if (primeiroControle) primeiroControle.focus();
   }
   function fecharModal() {
+    var voltar = retornoDoModal;
+    retornoDoModal = null;
     document.getElementById("modal-overlay").hidden = true;
     document.getElementById("modal-box").innerHTML = "";
     if (elementoComFocoAntesDoModal && document.contains(elementoComFocoAntesDoModal)) {
       elementoComFocoAntesDoModal.focus();
     }
     elementoComFocoAntesDoModal = null;
+    if (voltar) voltar();
   }
 
   function abrirModalNovoAluno() {
@@ -1807,17 +1854,14 @@
 
     abrirModal(
       '<h2 id="modal-title">Matricular aluno</h2>' +
-      '<p class="modal-sub">Informe os dados do estudante. Cadastros incompletos podem ser salvos para preenchimento posterior.</p>' +
-      '<form id="form-novo-aluno">' +
-      '<fieldset class="form-section form-section-first"><legend>Identificação do estudante</legend>' +
-      '<div class="form-grid">' +
+      '<p class="modal-sub">Você pode salvar a matrícula e completar os dados depois. Para calcular o risco, todos os dados da predição precisam estar preenchidos.</p>' +
+      '<form id="form-novo-aluno" class="enrollment-form">' +
+      '<div class="example-actions"><button type="button" class="btn btn-secondary js-exemplo-completo" data-prefixo="f">Preencher exemplo</button><span>Preenchimento demonstrativo. Confira os valores antes de salvar.</span></div>' +
+      renderCamposIngresso("f", alunoPadraoModal,
       '<div class="field"><label for="f-nome">Nome completo</label><input id="f-nome" required placeholder="Ex.: Lucas Ferreira" /></div>' +
       '<div class="field"><label for="f-email">E-mail</label><input id="f-email" type="email" required placeholder="Ex.: lucas@escola.com" /></div>' +
-      '<div class="field"><label for="f-student-id">Identificador do estudante</label><input id="f-student-id" class="input-mono" value="' + escapeHtml(studentIdSugerido) + '" required /></div>' +
-      '</div>' +
-      '</fieldset>' +
-      renderCamposIngresso("f", alunoPadraoModal) +
-      renderCamposPredicao("f", alunoPadraoModal) +
+      '<div class="field"><label for="f-student-id">Identificador do estudante</label><input id="f-student-id" class="input-mono" value="' + escapeHtml(studentIdSugerido) + '" required /></div>') +
+      renderGruposMatricula(alunoPadraoModal) +
       '<div class="form-actions">' +
       '<button type="button" class="btn btn-secondary" id="btn-cancelar-modal">Cancelar</button>' +
       '<button type="submit" class="btn btn-primary">Salvar matrícula</button>' +
@@ -1826,6 +1870,25 @@
     );
 
     document.getElementById("btn-cancelar-modal").addEventListener("click", fecharModal);
+    document.getElementById("btn-matricula-macro").addEventListener("click", function () {
+      var caixa = document.getElementById("modal-box");
+      var posicao = caixa.scrollTop;
+      var foco = document.activeElement;
+      var focoAnterior = elementoComFocoAntesDoModal;
+      var formulario = document.createDocumentFragment();
+      while (caixa.firstChild) formulario.appendChild(caixa.firstChild);
+      abrirModalMacro(function () {
+        caixa.replaceChildren(formulario);
+        document.getElementById("modal-overlay").hidden = false;
+        elementoComFocoAntesDoModal = focoAnterior;
+        caixa.querySelectorAll("[data-matricula-macro]").forEach(function (el) {
+          var valor = state.macro && state.macro[el.getAttribute("data-matricula-macro")];
+          el.textContent = valor == null ? "Não configurado" : formatarNumeroBR(valor) + "%";
+        });
+        foco.focus({ preventScroll: true });
+        caixa.scrollTop = posicao;
+      });
+    });
     document.getElementById("form-novo-aluno").addEventListener("submit", function (e) {
       e.preventDefault();
       var emailDigitado = document.getElementById("f-email").value.trim().toLowerCase();

@@ -1,8 +1,8 @@
 # Integração atual — 05/11/2026
 
-O exemplo completo recebido de Kaique está em `payload-kaique.json`: um objeto
-`{ studentId, features }` com 34 atributos. Os 13 atributos enviados anteriormente
-por Daniel são um exemplo parcial; ele autorizou manter os demais atributos.
+O exemplo completo de referência está em `payload-exemplo.json`: um objeto
+`{ studentId, features }` com 34 atributos. O exemplo anterior, com 13 atributos,
+era parcial e não substitui o contrato completo de integração.
 Esse exemplo não define, por si só, quais campos o backend considera opcionais.
 
 O frontend continua validando os 34 atributos antes de consultar o modelo.
@@ -11,17 +11,23 @@ O cadastro comum inicia sem um perfil de risco pré-selecionado e não preenche
 atributos complementares ausentes com valores presumidos.
 
 Cadastro e edição exibem os campos complementares. O botão de exemplo completo
-preenche os valores de Kaique. As categorias do JSON são índices do modelo:
+preenche os valores de referência. As categorias do JSON são índices do modelo:
 o formulário converte esses índices para os códigos UCI internos e o envio os
 converte de volta, uma única vez. A ordem dos catálogos deve ser preservada.
+
+A matrícula organiza os campos em identificação e matrícula, perfil e ingresso,
+família e condições de apoio, situação financeira, desempenho acadêmico por
+semestre e indicadores macroeconômicos. A configuração global de indicadores
+pode ser aberta durante o preenchimento, com retorno à matrícula sem perder
+os campos já informados. Essa organização não altera o contrato de envio.
 
 Inflação e PIB continuam compartilhados, configurados em Indicadores macro e
 visíveis no formulário. Desemprego aceita valor individual, com fallback global.
 O exemplo não altera indicadores globais; se houver divergência, avisa que o
-JSON exato de Kaique usa inflação 1,4% e PIB 1,74%.
+JSON de referência usa inflação 1,4% e PIB 1,74%.
 
 A interface oferece somente um exemplo completo, identificado como preenchimento
-demonstrativo, sem nomes dos integrantes. Os atalhos parciais, os perfis por
+demonstrativo. Os atalhos parciais, os perfis por
 nível de risco e o cadastro automático de dois exemplos foram removidos.
 
 Na Vercel, o destino é `/api/v1/predictions`, encaminhado pelo `vercel.json`

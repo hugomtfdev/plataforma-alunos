@@ -829,6 +829,31 @@ table.ledger-table{
   font-size:12px;
   line-height:1.5;
 }
+.enrollment-form .form-section{
+  margin-top:26px;
+  padding-top:18px;
+}
+.enrollment-form .form-section-first{ margin-top:20px; padding-top:0; }
+.enrollment-form .form-section legend{ font-size:14px; }
+.enrollment-semester + .enrollment-semester{
+  margin-top:18px;
+  padding-top:18px;
+  border-top:1px solid var(--border);
+}
+.enrollment-semester h3{
+  margin:0 0 12px;
+  font-size:12.5px;
+  font-weight:600;
+  color:var(--ink-soft);
+}
+.enrollment-macro{
+  margin-top:14px;
+  padding:14px;
+  border:1px solid var(--border);
+  border-radius:var(--radius-m);
+  background:var(--surface-subtle);
+}
+.enrollment-macro .form-section-note{ margin:10px 0; }
 .field{
   display:flex;
   flex-direction:column;

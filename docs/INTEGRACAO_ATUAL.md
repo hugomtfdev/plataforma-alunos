@@ -20,10 +20,9 @@ visíveis no formulário. Desemprego aceita valor individual, com fallback globa
 O exemplo não altera indicadores globais; se houver divergência, avisa que o
 JSON exato de Kaique usa inflação 1,4% e PIB 1,74%.
 
-Os exemplos parciais de Daniel preenchem somente os dados conhecidos. O atalho
-que cadastra dois exemplos usa os complementos do exemplo de Kaique e identifica
-os registros como exemplos sintéticos; não representa duas pessoas reais.
-As predições desses exemplos continuam sendo requisições individuais.
+A interface oferece somente um exemplo completo, identificado como preenchimento
+demonstrativo, sem nomes dos integrantes. Os atalhos parciais, os perfis por
+nível de risco e o cadastro automático de dois exemplos foram removidos.
 
 Na Vercel, o destino é `/api/v1/predictions`, encaminhado pelo `vercel.json`
 ao gateway Java configurado. Os headers continuam `Authorization: Bearer ...`

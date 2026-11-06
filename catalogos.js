@@ -4,8 +4,8 @@
  * (ver converterCodigoUciParaIndice em script.js). NAO reordene nem remova itens.
  * Gerado a partir de manual.md (secao 13); perfis de exemplo extraidos de linhas reais
  * de data/student-dropout-dataset.csv (categoricos convertidos de volta para codigo UCI). */
-// Exemplo completo recebido do backend (Kaique). Categóricos já em índices do modelo.
-var PAYLOAD_EXEMPLO_KAIQUE = {
+// Exemplo completo de referência do backend. Categóricos já em índices do modelo.
+var PAYLOAD_EXEMPLO_COMPLETO = {
   studentId: "ALUNO-2026-001",
   features: {
     marital_status: 1, application_mode: 8, application_order: 5, course: 2,

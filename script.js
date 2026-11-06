@@ -243,9 +243,9 @@
     }).join("");
   }
 
-  // Os 13 atributos do payload exemplificado pelo líder (Daniel) na Kasper API:
+  // Campos principais de acompanhamento acadêmico e financeiro:
   // "course" fica em Dados de matrícula; os outros 12 aparecem diretamente na grade principal.
-  var CHAVES_ESSENCIAIS_DANIEL = [
+  var CHAVES_PRINCIPAIS = [
     "marital_status",
     "age_at_enrollment",
     "debtor",
@@ -259,84 +259,6 @@
     "curricular_units_2nd_sem_grade",
     "unemployment_rate"
   ];
-
-  var EXEMPLOS_DANIEL = {
-    evasao: {
-      rotulo: "ALUNO-RISCO-EVASAO (Crítico · Idade 32)",
-      studentId: "ALUNO-RISCO-EVASAO",
-      nomeSugerido: "Carlos Eduardo Silva",
-      emailSugerido: "carlos.evasao@escola.com",
-      cursoCodigoUci: 171, // course: 2
-      turno: "Diurno",
-      frequencia: 48,
-      media: 3.5,
-      reprovadas: 6,
-      unemployment_rate: 16.2,
-      dados: {
-        marital_status: 1,
-        debtor: 1,
-        tuition_fees_up_to_date: 0,
-        scholarship_holder: 0,
-        age_at_enrollment: 32,
-        curricular_units_1st_sem_enrolled: 6,
-        curricular_units_1st_sem_approved: 0,
-        curricular_units_1st_sem_grade: 0.0,
-        curricular_units_2nd_sem_enrolled: 6,
-        curricular_units_2nd_sem_approved: 0,
-        curricular_units_2nd_sem_grade: 0.0
-      }
-    },
-    critico1: {
-      rotulo: "ALUNO-001-CRITICO (Crítico · Idade 29)",
-      studentId: "ALUNO-001-CRITICO",
-      nomeSugerido: "Lucas Mendes",
-      emailSugerido: "lucas.critico@escola.com",
-      cursoCodigoUci: 171, // course: 2
-      turno: "Noturno",
-      frequencia: 52,
-      media: 4.0,
-      reprovadas: 6,
-      unemployment_rate: 16.2,
-      dados: {
-        marital_status: 1,
-        debtor: 1,
-        tuition_fees_up_to_date: 0,
-        scholarship_holder: 0,
-        age_at_enrollment: 29,
-        curricular_units_1st_sem_enrolled: 6,
-        curricular_units_1st_sem_approved: 0,
-        curricular_units_1st_sem_grade: 0.0,
-        curricular_units_2nd_sem_enrolled: 6,
-        curricular_units_2nd_sem_approved: 0,
-        curricular_units_2nd_sem_grade: 0.0
-      }
-    },
-    destaque2: {
-      rotulo: "ALUNO-002-DESTAQUE (Baixo Risco · Idade 18)",
-      studentId: "ALUNO-002-DESTAQUE",
-      nomeSugerido: "Mariana Costa",
-      emailSugerido: "mariana.destaque@escola.com",
-      cursoCodigoUci: 9147, // course: 9 (Gestão)
-      turno: "Diurno",
-      frequencia: 94,
-      media: 8.9,
-      reprovadas: 0,
-      unemployment_rate: 8.0,
-      dados: {
-        marital_status: 1,
-        debtor: 0,
-        tuition_fees_up_to_date: 1,
-        scholarship_holder: 1,
-        age_at_enrollment: 18,
-        curricular_units_1st_sem_enrolled: 6,
-        curricular_units_1st_sem_approved: 6,
-        curricular_units_1st_sem_grade: 17.5,
-        curricular_units_2nd_sem_enrolled: 6,
-        curricular_units_2nd_sem_approved: 6,
-        curricular_units_2nd_sem_grade: 18.0
-      }
-    }
-  };
 
   function renderCamposIngresso(prefixo, aluno) {
     aluno = aluno || {};
@@ -352,9 +274,9 @@
     }
 
     return '<fieldset class="form-section">' +
-      '<legend>Dados de matrícula (Atributo <code>course</code> do payload)</legend>' +
+      '<legend>Dados de matrícula</legend>' +
       '<div class="form-grid">' +
-      '<div class="field"><label for="' + prefixo + '-curso">Curso (<code>course</code>: 1 a 17)</label><select id="' + prefixo + '-curso" required>' + cursoOptions + '</select><span class="field-hint">Ex.: Cód. 2 = <code>"course": 2</code> no JSON da API.</span></div>' +
+      '<div class="field"><label for="' + prefixo + '-curso">Curso</label><select id="' + prefixo + '-curso" required>' + cursoOptions + '</select></div>' +
       campoTurno +
       '<div class="field"><label for="' + prefixo + '-data">Data de matrícula</label><input id="' + prefixo + '-data" type="date" value="' + escapeHtml(aluno.dataMatricula || hojeISO()) + '" required /></div>' +
       '</div>' +
@@ -429,20 +351,15 @@
     return '<div class="field"><label for="' + id + '">' + escapeHtml(campo.rotulo) + ' <code class="field-code">' + escapeHtml(campo.chave) + '</code></label>' + controle + '</div>';
   }
 
-  function renderCamposEssenciaisDaniel(prefixo, aluno) {
+  function renderCamposPrincipais(prefixo, aluno) {
     aluno = aluno || {};
-    var camposEssenciais = CHAVES_ESSENCIAIS_DANIEL.map(function (chave) {
+    var camposEssenciais = CHAVES_PRINCIPAIS.map(function (chave) {
       return CAMPOS_PREDICAO.find(function (c) { return c.chave === chave; });
     }).filter(Boolean);
 
-    var botoesDaniel = Object.keys(EXEMPLOS_DANIEL).map(function (chave) {
-      return '<button type="button" class="btn btn-secondary js-exemplo-daniel" data-prefixo="' + prefixo + '" data-exemplo="' + chave + '">' + escapeHtml(EXEMPLOS_DANIEL[chave].rotulo) + '</button>';
-    }).join("");
-
     return '<fieldset class="form-section">' +
-      '<legend>Dados para Predição de Evasão (Payload Kasper API)</legend>' +
-      '<p class="form-section-note">Estes são os 13 atributos do exemplo inicial do Daniel. O envio completo contém 34 atributos no objeto <code>features</code> para <code>/api/v1/predictions</code> (o atributo <code>course</code> é definido acima em Dados de matrícula).</p>' +
-      '<div class="example-actions"><span>Exemplos parciais (13 atributos; complete os demais abaixo):</span>' + botoesDaniel + '</div>' +
+      '<legend>Dados para predição</legend>' +
+      '<p class="form-section-note">Informe os dados pessoais, financeiros e acadêmicos do estudante.</p>' +
       '<div class="form-grid">' +
       camposEssenciais.map(function (c) { return renderCampoPredicao(prefixo, c, aluno); }).join("") +
       '</div>' +
@@ -452,16 +369,12 @@
   function renderCamposPredicao(prefixo, aluno) {
     var blocosSecundarios = GRUPOS_PREDICAO.map(function (grupo) {
       var campos = CAMPOS_PREDICAO.filter(function (c) {
-        return c.grupo === grupo && !c.cadastro && !c.global && !(prefixo === "f" && c.chave === "daytime_evening_attendance") && CHAVES_ESSENCIAIS_DANIEL.indexOf(c.chave) === -1;
+        return c.grupo === grupo && !c.cadastro && !c.global && !(prefixo === "f" && c.chave === "daytime_evening_attendance") && CHAVES_PRINCIPAIS.indexOf(c.chave) === -1;
       });
       if (!campos.length) return "";
       return '<div class="predict-group"><h4>' + escapeHtml(grupo) + '</h4><div class="form-grid">' +
         campos.map(function (c) { return renderCampoPredicao(prefixo, c, aluno); }).join("") +
         '</div></div>';
-    }).join("");
-
-    var botoes = Object.keys(PERFIS_EXEMPLO).map(function (chave) {
-      return '<button type="button" class="btn btn-secondary js-exemplo" data-prefixo="' + prefixo + '" data-perfil="' + chave + '">' + escapeHtml(PERFIS_EXEMPLO[chave].rotulo) + '</button>';
     }).join("");
 
     var macro = state.macro || {};
@@ -470,11 +383,11 @@
       return '<div class="field"><label>' + escapeHtml(campo.rotulo) + ' <code class="field-code">' + chave + '</code></label>' +
         '<span class="meta-value">' + (macro[chave] == null ? "Não configurado" : formatarNumeroBR(macro[chave]) + "%") + '</span></div>';
     }).join("");
-    return '<div class="example-actions"><button type="button" class="btn btn-secondary js-exemplo-kaique" data-prefixo="' + prefixo + '">Preencher exemplo completo do Kaique (34 atributos)</button><span>Usa dados de exemplo; confira antes de salvar.</span></div>' +
-      renderCamposEssenciaisDaniel(prefixo, aluno) +
-      '<fieldset class="form-section"><legend>Demais atributos do modelo</legend>' +
-      '<p class="form-section-note">Campos sem informação permanecem pendentes. Nenhum valor complementar é presumido no cadastro comum.</p>' +
-      '<div class="example-actions"><span>Perfis completos do CSV UCI:</span>' + botoes + '</div>' + blocosSecundarios + '</fieldset>' +
+    return '<div class="example-actions"><button type="button" class="btn btn-secondary js-exemplo-completo" data-prefixo="' + prefixo + '">Preencher exemplo</button><span>Preenchimento demonstrativo. Confira os valores antes de salvar.</span></div>' +
+      renderCamposPrincipais(prefixo, aluno) +
+      '<fieldset class="form-section"><legend>Informações complementares</legend>' +
+      '<p class="form-section-note">Preencha os campos conhecidos. Informações ausentes ficam pendentes para a predição.</p>' +
+      blocosSecundarios + '</fieldset>' +
       '<fieldset class="form-section"><legend>Indicadores globais incluídos no envio</legend>' +
       '<p class="form-section-note">Inflação e PIB vêm de Indicadores macro, no cabeçalho, e são compartilhados por todos os alunos. O desemprego acima pode ser individual.</p>' +
       '<div class="form-grid">' + indicadores + '</div></fieldset>';
@@ -510,8 +423,8 @@
     return aluno;
   }
 
-  function preencherExemploKaique(prefixo) {
-    var aluno = alunoDoPayloadExemplo(PAYLOAD_EXEMPLO_KAIQUE);
+  function preencherExemploCompleto(prefixo) {
+    var aluno = alunoDoPayloadExemplo(PAYLOAD_EXEMPLO_COMPLETO);
     CAMPOS_PREDICAO.forEach(function (campo) {
       if (campo.global && campo.chave !== "unemployment_rate") return;
       var el = document.getElementById(campo.cadastro ? prefixo + "-curso" : prefixo + "-p-" + campo.chave);
@@ -522,8 +435,8 @@
     if (elTurno) elTurno.value = aluno.turno;
     document.getElementById(prefixo + "-student-id").value = aluno.studentId;
     var macro = state.macro || {};
-    var diferentes = ["inflation_rate", "gdp"].some(function (chave) { return macro[chave] !== PAYLOAD_EXEMPLO_KAIQUE.features[chave]; });
-    mostrarToast(diferentes ? "Exemplo preenchido. Para reproduzir o JSON do Kaique, configure inflação 1,4% e PIB 1,74% em Indicadores macro." : "Exemplo completo do Kaique preenchido. Confira e salve.");
+    var diferentes = ["inflation_rate", "gdp"].some(function (chave) { return macro[chave] !== PAYLOAD_EXEMPLO_COMPLETO.features[chave]; });
+    mostrarToast(diferentes ? "Exemplo preenchido. Para reproduzir todos os valores do exemplo, configure inflação 1,4% e PIB 1,74% em Indicadores macro." : "Exemplo preenchido. Confira e salve.");
   }
 
   function lerUnemploymentRateIndividual(prefixo) {
@@ -531,42 +444,6 @@
     if (!el || el.value === "") return null;
     var n = Number(el.value);
     return isFinite(n) ? n : null;
-  }
-
-  function preencherExemploDaniel(prefixo, chaveExemplo) {
-    var ex = EXEMPLOS_DANIEL[chaveExemplo];
-    if (!ex) return;
-    var elCurso = document.getElementById(prefixo + "-curso");
-    if (elCurso) elCurso.value = String(ex.cursoCodigoUci);
-    var elTurno = document.getElementById(prefixo + "-turno");
-    if (elTurno && ex.turno) elTurno.value = ex.turno;
-    var elTurnoPredicao = document.getElementById(prefixo + "-p-daytime_evening_attendance");
-    if (elTurnoPredicao && ex.turno) elTurnoPredicao.value = ex.turno === "Diurno" ? "1" : "0";
-    var elStudentId = document.getElementById(prefixo + "-student-id");
-    if (elStudentId && ex.studentId) elStudentId.value = ex.studentId;
-    var elNome = document.getElementById(prefixo + "-nome");
-    if (elNome && !elNome.value.trim() && ex.nomeSugerido) elNome.value = ex.nomeSugerido;
-    var elEmail = document.getElementById(prefixo + "-email");
-    if (elEmail && !elEmail.value.trim() && ex.emailSugerido) elEmail.value = ex.emailSugerido;
-
-    Object.keys(ex.dados).forEach(function (chave) {
-      var el = document.getElementById(prefixo + "-p-" + chave);
-      if (el) el.value = String(ex.dados[chave]);
-    });
-    var elUnemp = document.getElementById(prefixo + "-p-unemployment_rate");
-    if (elUnemp && ex.unemployment_rate != null) elUnemp.value = String(ex.unemployment_rate);
-    mostrarToast("Exemplo " + ex.studentId + " preenchido nos campos.");
-  }
-
-  function preencherPerfilExemplo(prefixo, chavePerfil) {
-    var perfil = PERFIS_EXEMPLO[chavePerfil];
-    if (!perfil) return;
-    CAMPOS_PREDICAO.forEach(function (campo) {
-      var el = document.getElementById(campo.cadastro ? prefixo + "-curso" : prefixo + "-p-" + campo.chave);
-      if (el && perfil.dados[campo.chave] != null) el.value = String(perfil.dados[campo.chave]);
-      if (campo.chave === "daytime_evening_attendance" && prefixo === "f") document.getElementById("f-turno").value = perfil.dados[campo.chave] === 1 ? "Diurno" : "Noturno";
-    });
-    mostrarToast("Perfil de exemplo carregado (" + perfil.rotulo.toLowerCase() + "). Salve para aplicar.");
   }
 
   function formatarData(iso) {
@@ -1924,76 +1801,31 @@
     elementoComFocoAntesDoModal = null;
   }
 
-  function criarAlunoDeExemploDaniel(ex) {
-    var cursoObj = cursoPorCodigo(ex.cursoCodigoUci) || CURSOS_DISPONIVEIS[1];
-    var dadosPredicao = Object.assign({}, alunoDoPayloadExemplo(PAYLOAD_EXEMPLO_KAIQUE).dadosPredicao, ex.dados);
-    dadosPredicao.daytime_evening_attendance = ex.turno === "Noturno" ? 0 : 1;
-    dadosPredicao.curricular_units_1st_sem_evaluations = dadosPredicao.curricular_units_1st_sem_enrolled;
-    dadosPredicao.curricular_units_2nd_sem_evaluations = dadosPredicao.curricular_units_2nd_sem_enrolled;
-    return {
-      id: gerarId(),
-      studentId: ex.studentId,
-      nome: ex.nomeSugerido,
-      email: ex.emailSugerido,
-      cursoCodigo: cursoObj.codigo,
-      curso: cursoObj.nome,
-      dataMatricula: hojeISO(),
-      turno: ex.turno || "Diurno",
-      frequencia: ex.frequencia,
-      media: ex.media,
-      disciplinasReprovadas: ex.reprovadas,
-      unemploymentRate: ex.unemployment_rate,
-      dadosPredicao: dadosPredicao,
-      versaoDados: VERSAO_DADOS,
-      status: "ativo"
-    };
-  }
-
   function abrirModalNovoAluno() {
     var alunoPadraoModal = { dataMatricula: hojeISO(), dadosPredicao: {} };
     var studentIdSugerido = "ALUNO-" + gerarId().toUpperCase();
 
     abrirModal(
-      '<h2 id="modal-title">Matricular aluno &amp; Dados do Payload</h2>' +
-      '<p class="modal-sub">Preencha os dados cadastrais e confira os <strong>34 atributos da predição</strong>, ou use o exemplo completo do Kaique. Cadastros incompletos podem ser salvos, mas não geram predição.</p>' +
+      '<h2 id="modal-title">Matricular aluno</h2>' +
+      '<p class="modal-sub">Informe os dados do estudante. Cadastros incompletos podem ser salvos para preenchimento posterior.</p>' +
       '<form id="form-novo-aluno">' +
       '<fieldset class="form-section form-section-first"><legend>Identificação do estudante</legend>' +
       '<div class="form-grid">' +
       '<div class="field"><label for="f-nome">Nome completo</label><input id="f-nome" required placeholder="Ex.: Lucas Ferreira" /></div>' +
       '<div class="field"><label for="f-email">E-mail</label><input id="f-email" type="email" required placeholder="Ex.: lucas@escola.com" /></div>' +
-      '<div class="field"><label for="f-student-id">ID do aluno na API (<code>studentId</code>)</label><input id="f-student-id" class="input-mono" value="' + escapeHtml(studentIdSugerido) + '" required /></div>' +
+      '<div class="field"><label for="f-student-id">Identificador do estudante</label><input id="f-student-id" class="input-mono" value="' + escapeHtml(studentIdSugerido) + '" required /></div>' +
       '</div>' +
       '</fieldset>' +
       renderCamposIngresso("f", alunoPadraoModal) +
       renderCamposPredicao("f", alunoPadraoModal) +
       '<div class="form-actions">' +
       '<button type="button" class="btn btn-secondary" id="btn-cancelar-modal">Cancelar</button>' +
-      '<button type="button" class="btn btn-secondary" id="btn-carregar-dupla-daniel" title="Cadastra dois exemplos e consulta a predição de cada um individualmente">Cadastrar e prever dois exemplos</button>' +
       '<button type="submit" class="btn btn-primary">Salvar matrícula</button>' +
       '</div>' +
       '</form>'
     );
 
     document.getElementById("btn-cancelar-modal").addEventListener("click", fecharModal);
-    document.getElementById("btn-carregar-dupla-daniel").addEventListener("click", function () {
-      var a1 = criarAlunoDeExemploDaniel(EXEMPLOS_DANIEL.critico1);
-      var a2 = criarAlunoDeExemploDaniel(EXEMPLOS_DANIEL.destaque2);
-      var anteriores = state.alunos;
-      state.alunos = state.alunos.filter(function (a) {
-        return a.studentId !== a1.studentId && a.studentId !== a2.studentId && a.email !== a1.email && a.email !== a2.email;
-      });
-      state.alunos.push(a1, a2);
-      if (!salvarDados()) {
-        state.alunos = anteriores;
-        return;
-      }
-      fecharModal();
-      fecharDetalhe();
-      renderLista();
-      mostrarToast("Dois exemplos sintéticos cadastrados, com atributos complementares do exemplo do Kaique.");
-      atualizarLote();
-    });
-
     document.getElementById("form-novo-aluno").addEventListener("submit", function (e) {
       e.preventDefault();
       var emailDigitado = document.getElementById("f-email").value.trim().toLowerCase();
@@ -2006,7 +1838,7 @@
         return;
       }
       var ingresso = lerDadosIngresso("f", null);
-      var studentIdDigitado = document.getElementById("f-student-id").value.trim() || "ALUNO-RISCO-EVASAO";
+      var studentIdDigitado = document.getElementById("f-student-id").value.trim() || studentIdSugerido;
       var dadosPredicao = lerFormularioPredicao("f");
       var unempInd = lerUnemploymentRateIndividual("f");
 
@@ -2066,7 +1898,7 @@
       '<fieldset class="form-section form-section-first"><legend>Dados cadastrais</legend><div class="form-grid">' +
       '<div class="field"><label for="e-nome">Nome completo</label><input id="e-nome" value="' + escapeHtml(aluno.nome) + '" required /></div>' +
       '<div class="field"><label for="e-email">E-mail</label><input id="e-email" type="email" value="' + escapeHtml(aluno.email) + '" required /></div>' +
-      '<div class="field"><label for="e-student-id">ID do aluno na API (<code>studentId</code>)</label><input id="e-student-id" class="input-mono" value="' + escapeHtml(aluno.studentId || aluno.id) + '" required /></div>' +
+      '<div class="field"><label for="e-student-id">Identificador do estudante</label><input id="e-student-id" class="input-mono" value="' + escapeHtml(aluno.studentId || aluno.id) + '" required /></div>' +
       '</div></fieldset>' +
       renderCamposIngresso("e", aluno) +
       renderCamposPredicao("e", aluno) +
@@ -2236,14 +2068,8 @@
     var prever = e.target.closest(".js-prever");
     if (prever) { executarPrevisaoDetalhe(prever.getAttribute("data-id")); return; }
 
-    var exemploKaique = e.target.closest(".js-exemplo-kaique");
-    if (exemploKaique) { preencherExemploKaique(exemploKaique.getAttribute("data-prefixo")); return; }
-
-    var exemploDaniel = e.target.closest(".js-exemplo-daniel");
-    if (exemploDaniel) { preencherExemploDaniel(exemploDaniel.getAttribute("data-prefixo"), exemploDaniel.getAttribute("data-exemplo")); return; }
-
-    var exemplo = e.target.closest(".js-exemplo");
-    if (exemplo) { preencherPerfilExemplo(exemplo.getAttribute("data-prefixo"), exemplo.getAttribute("data-perfil")); return; }
+    var exemplo = e.target.closest(".js-exemplo-completo");
+    if (exemplo) { preencherExemploCompleto(exemplo.getAttribute("data-prefixo")); return; }
 
     if (e.target.closest(".js-tentar-lote")) { atualizarLote(); return; }
 
@@ -2296,7 +2122,7 @@
       montarBackup: montarBackup,
       renderPayloadPreview: renderPayloadPreview,
       alunoDoPayloadExemplo: alunoDoPayloadExemplo,
-      preencherExemploKaique: preencherExemploKaique,
+      preencherExemploCompleto: preencherExemploCompleto,
       lerFormularioPredicao: lerFormularioPredicao,
       renderCamposPredicao: renderCamposPredicao,
       renderBadgeApi: renderBadgeApi,

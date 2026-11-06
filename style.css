@@ -242,7 +242,7 @@ a, button{ cursor:pointer; }
   background:var(--risk-low-bg);
   border-color:var(--risk-low-border);
 }
-.api-badge.offline{
+.api-badge.offline, .api-badge.erro{
   color:var(--risk-high);
   background:var(--risk-high-bg);
   border-color:var(--risk-high-border);
@@ -252,7 +252,7 @@ a, button{ cursor:pointer; }
   background:var(--risk-mid-bg);
   border-color:var(--risk-mid-border);
 }
-.api-badge.desconhecido, .api-badge.verificando{
+.api-badge.desconhecido, .api-badge.verificando, .api-badge.configurado, .api-badge.saudavel{
   color:var(--ink-faint);
   background:var(--surface-muted);
   border-color:var(--border);

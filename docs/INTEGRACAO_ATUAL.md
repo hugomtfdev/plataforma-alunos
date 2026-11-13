@@ -44,8 +44,7 @@ em backups. Substituições antigas em unemploymentRate ou dadosPredicao não s�
 reativadas; cadastros v4/v5 continuam seguindo o global até a opção explícita.
 Salvar os indicadores atualiza as previsões dos alunos ativos com dados completos
 cujo payload mudou; resultados já consultados podem ser reutilizados do cache.
-O exemplo não altera os indicadores de nenhum contexto; se houver divergência,
-avisa que a referência usa desemprego 10,8%, inflação 1,4% e PIB 1,74%.
+O exemplo não altera os indicadores de nenhum contexto.
 
 A interface oferece somente um exemplo completo, identificado como preenchimento
 demonstrativo. Os atalhos parciais, os perfis por

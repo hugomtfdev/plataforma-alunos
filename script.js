@@ -443,9 +443,7 @@
     if (elTurno) elTurno.value = aluno.turno;
     atualizarIndicadoresFormulario(prefixo);
     document.getElementById(prefixo + "-student-id").value = aluno.studentId;
-    var macro = lerMacroIndividual(prefixo) || state.macro || {};
-    var diferentes = CAMPOS_MACRO.some(function (chave) { return macro[chave] !== PAYLOAD_EXEMPLO_COMPLETO.features[chave]; });
-    mostrarToast(diferentes ? "Exemplo preenchido. Para reproduzir todos os valores do exemplo, configure desemprego 10,8%, inflação 1,4% e PIB 1,74% no contexto do aluno ou em Indicadores macro." : "Exemplo preenchido. Confira e salve.");
+    mostrarToast("Exemplo preenchido. Confira e salve.");
   }
 
   function formatarData(iso) {

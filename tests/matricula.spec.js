@@ -154,7 +154,7 @@ test('desemprego global substitui valores antigos e envia novas previsões para 
   await expect(page.locator('#f-p-unemployment_rate')).toHaveCount(0);
   await page.getByRole('button', { name: 'Preencher exemplo', exact: true }).click();
   await expect(page.locator('[data-matricula-macro=unemployment_rate]')).toHaveText('13%');
-  await expect(page.locator('#toast')).toContainText('desemprego 10,8%');
+  await expect(page.locator('#toast')).toHaveText('Exemplo preenchido. Confira e salve.');
   await page.getByRole('button', { name: 'Cancelar', exact: true }).click();
   await page.reload();
   expect(await page.evaluate(() => window.__teste.state.alunos.map(a => window.__teste.montarFeatures(a).unemployment_rate))).toEqual([13, 13]);
@@ -299,4 +299,62 @@ test('formulários funcionam em tela de celular sem transbordamento', async ({ p
   await page.screenshot({ path: testInfo.outputPath('edicao-celular.png') });
   await page.getByRole('button', { name: 'Salvar alterações', exact: true }).click();
   expect((await alunoSalvo(page)).media).toBe(8.4);
+});
+
+
+for (const editando of [false, true]) {
+  for (const origem of ['global', 'individual']) {
+    test(`exemplo oficial preserva macro ${origem} na ${editando ? 'edição' : 'matrícula'}`, async ({ page }) => {
+      const global = { unemployment_rate: 9.5, inflation_rate: 2, gdp: 1 };
+      const individual = { unemployment_rate: 12.1, inflation_rate: -0.5, gdp: 2.7 };
+      await page.evaluate(macro => {
+        window.__teste.state.macro = macro;
+        window.__teste.macroService.salvar(macro);
+      }, global);
+      if (editando) {
+        await cadastrar(page);
+        await page.getByRole('button', { name: 'Editar dados', exact: true }).click();
+      } else {
+        await page.getByRole('button', { name: '+ Matricular aluno', exact: true }).click();
+      }
+      const prefixo = editando ? 'e' : 'f';
+      if (origem === 'individual') {
+        await page.locator(`#${prefixo}-macro-origem`).selectOption(origem);
+        for (const [chave, valor] of Object.entries(individual)) {
+          await page.locator(`#${prefixo}-macro-${chave}`).fill(String(valor));
+        }
+      }
+      // Altera campos para garantir que o clique realmente aplica a referência.
+      await page.locator(`#${prefixo}-p-age_at_enrollment`).fill('45');
+      await page.locator(`#${prefixo}-p-application_mode`).selectOption({ index: 1 });
+      await page.getByRole('button', { name: 'Preencher exemplo', exact: true }).click();
+      await expect(page.locator(`#${prefixo}-macro-origem`)).toHaveValue(origem);
+      const contexto = origem === 'global' ? global : individual;
+      for (const [chave, valor] of Object.entries(contexto)) {
+        await expect(page.locator(`#${prefixo}-macro-${chave}`)).toHaveValue(String(valor));
+      }
+      expect(await page.evaluate(() => window.__teste.state.macro)).toEqual(global);
+      await expect(page.locator('#toast')).toHaveText('Exemplo preenchido. Confira e salve.');
+      if (!editando) {
+        await page.locator('#f-nome').fill('Exemplo oficial');
+        await page.locator('#f-email').fill('exemplo@example.com');
+      }
+      await page.locator(`#form-${editando ? 'editar' : 'novo'}-aluno button[type=submit]`).click();
+      const payload = await page.evaluate(() => window.__teste.montarPayload(window.__teste.state.alunos[0]));
+      expect(payload).toEqual({ ...exemplo, features: { ...exemplo.features, ...contexto } });
+    });
+  }
+}
+
+test('preencher exemplo preserva contexto individual incompleto', async ({ page }) => {
+  await page.getByRole('button', { name: '+ Matricular aluno', exact: true }).click();
+  await page.locator('#f-macro-origem').selectOption('individual');
+  await page.locator('#f-macro-unemployment_rate').fill('');
+  await page.locator('#f-macro-inflation_rate').fill('0');
+  await page.locator('#f-macro-gdp').fill('-2');
+  await page.getByRole('button', { name: 'Preencher exemplo', exact: true }).click();
+  await expect(page.locator('#f-macro-origem')).toHaveValue('individual');
+  await expect(page.locator('#f-macro-unemployment_rate')).toHaveValue('');
+  await expect(page.locator('#f-macro-inflation_rate')).toHaveValue('0');
+  await expect(page.locator('#f-macro-gdp')).toHaveValue('-2');
 });

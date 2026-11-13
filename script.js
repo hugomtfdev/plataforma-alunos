@@ -20,7 +20,7 @@
     return u;
   }
   var API_TIMEOUT_MS = 20000;
-  var VERSAO_DADOS = 5;
+  var VERSAO_DADOS = 6;
   var LEGENDA_MODELO = "Predição do modelo (Regressão Logística, acurácia 86,67%) — estimativa estatística, não certeza.";
 
   var CURSOS_DISPONIVEIS = CATALOGOS.course.map(function (curso) {
@@ -158,8 +158,7 @@
 
   /* ---------------- indicadores macroeconômicos (configuração global) ---------------- */
 
-  // Desemprego, inflação e PIB são indicadores do período, iguais para todos os alunos:
-  // ficam numa configuração única (não por aluno) e entram no payload via valorDoCampo().
+  // Indicadores globais são o padrão; macroIndividual permite outro contexto por aluno.
   var MACRO_KEY = "config-macro";
   var CAMPOS_MACRO = ["unemployment_rate", "inflation_rate", "gdp"];
   // Faixas observadas no dataset de treino; fora delas a predição é uma extrapolação.
@@ -315,7 +314,10 @@
   function valorDoCampo(aluno, campo) {
     var valor;
     if (campo.chave === "course") valor = aluno.cursoCodigo;
-    else if (campo.global) valor = state.macro ? state.macro[campo.chave] : null;
+    else if (campo.global) {
+      var macro = aluno.macroIndividual || state.macro;
+      valor = macro ? macro[campo.chave] : null;
+    }
     else valor = (aluno.dadosPredicao || {})[campo.chave];
     return valor == null || valor === "" ? null : valor;
   }
@@ -354,6 +356,15 @@
         grade(["enrolled", "credited", "approved", "evaluations", "without_evaluations", "grade"].map(function (chave) { return prefixo + chave; })) + '</div>';
     }).join("");
     var macro = state.macro || {};
+    var individual = !!aluno.macroIndividual;
+    var valoresIndividuais = aluno.macroIndividual || macro;
+    var camposIndividuais = CAMPOS_MACRO.map(function (chave) {
+      var campo = campoMacro(chave);
+      var valor = valoresIndividuais[chave];
+      return '<div class="field"><label for="' + prefixoFormulario + '-macro-' + chave + '">' + escapeHtml(campo.rotulo) + '</label>' +
+        '<input id="' + prefixoFormulario + '-macro-' + chave + '" type="number" step="any" min="' + campo.min + '" max="' + campo.max + '" value="' +
+        escapeHtml(valor == null ? '' : valor) + '" required' + (individual ? '' : ' disabled') + ' /></div>';
+    }).join('');
     var globais = CAMPOS_MACRO.map(function (chave) {
       return '<div class="meta-item"><span class="meta-label">' + escapeHtml(campoMacro(chave).rotulo) + '</span>' +
         '<strong class="meta-value" data-matricula-macro="' + chave + '">' +
@@ -369,9 +380,25 @@
     ])) + secao('Situação financeira', grade(['debtor', 'tuition_fees_up_to_date', 'scholarship_holder'])) +
       secao('Desempenho acadêmico', semestres) +
       secao('Indicadores macroeconômicos',
+        '<div class="field"><label for="' + prefixoFormulario + '-macro-origem">Origem dos indicadores</label>' +
+        '<select id="' + prefixoFormulario + '-macro-origem"><option value="global"' + (individual ? '' : ' selected') + '>Usar indicadores globais (padrão)</option>' +
+        '<option value="individual"' + (individual ? ' selected' : '') + '>Usar contexto individual deste aluno</option></select></div>' +
+        '<div id="' + prefixoFormulario + '-macro-individual"' + (individual ? '' : ' hidden') + '><div class="form-grid">' + camposIndividuais + '</div>' +
+        '<p class="form-section-note">Informe os três indicadores do contexto deste aluno. Estes valores serão preservados quando os indicadores globais mudarem.</p></div>' +
+        '<p class="form-section-note" id="' + prefixoFormulario + '-macro-global-nota"' + (individual ? ' hidden' : '') + '>Este aluno acompanha os indicadores globais. Para outro país ou período, selecione contexto individual.</p>' +
         '<div class="enrollment-macro"><div class="meta-grid">' + globais + '</div>' +
-        '<p class="form-section-note">Desemprego, inflação e PIB são indicadores globais compartilhados por todos os alunos. Altere-os em Configurar indicadores globais; os novos valores serão usados nas previsões de todos os alunos.</p>' +
+        '<p class="form-section-note">Referência global. Alterações afetam somente alunos que usam os indicadores globais.</p>' +
         '<button type="button" class="btn btn-secondary btn-sm" id="btn-matricula-macro">Configurar indicadores globais</button></div>');
+  }
+
+  function lerMacroIndividual(prefixo) {
+    if (document.getElementById(prefixo + '-macro-origem').value !== 'individual') return null;
+    var macro = {};
+    CAMPOS_MACRO.forEach(function (chave) {
+      var valor = document.getElementById(prefixo + '-macro-' + chave).value;
+      macro[chave] = valor === '' ? null : Number(valor);
+    });
+    return validarMacro(macro);
   }
 
   function lerFormularioPredicao(prefixo) {
@@ -416,9 +443,9 @@
     if (elTurno) elTurno.value = aluno.turno;
     atualizarIndicadoresFormulario(prefixo);
     document.getElementById(prefixo + "-student-id").value = aluno.studentId;
-    var macro = state.macro || {};
+    var macro = lerMacroIndividual(prefixo) || state.macro || {};
     var diferentes = CAMPOS_MACRO.some(function (chave) { return macro[chave] !== PAYLOAD_EXEMPLO_COMPLETO.features[chave]; });
-    mostrarToast(diferentes ? "Exemplo preenchido. Para reproduzir todos os valores do exemplo, configure desemprego 10,8%, inflação 1,4% e PIB 1,74% em Indicadores macro." : "Exemplo preenchido. Confira e salve.");
+    mostrarToast(diferentes ? "Exemplo preenchido. Para reproduzir todos os valores do exemplo, configure desemprego 10,8%, inflação 1,4% e PIB 1,74% no contexto do aluno ou em Indicadores macro." : "Exemplo preenchido. Confira e salve.");
   }
 
   function formatarData(iso) {
@@ -956,7 +983,7 @@
       return;
     }
     el.hidden = false;
-    el.innerHTML = '<strong>Indicadores macroeconômicos não configurados.</strong> Sem eles não há predição para nenhum aluno. ' +
+    el.innerHTML = '<strong>Indicadores macroeconômicos globais não configurados.</strong> Alunos sem contexto individual precisam desta configuração. ' +
       '<button type="button" class="btn-link js-abrir-macro">Configurar agora</button>';
   }
 
@@ -977,7 +1004,7 @@
 
     abrirModal(
       '<h2 id="modal-title">Indicadores macroeconômicos</h2>' +
-      '<p class="modal-sub">Valem para <strong>todos</strong> os alunos: são indicadores do período, não dados individuais. ' +
+      '<p class="modal-sub">São o padrão para os alunos que usam indicadores globais. Contextos individuais são preservados. ' +
       'O modelo foi treinado com valores em faixas específicas; fora delas a predição é uma extrapolação.</p>' +
       '<form id="form-macro">' +
       '<div class="form-grid single">' + inputs + '</div>' +
@@ -1249,12 +1276,16 @@
     // Descarta substituições individuais legadas ao carregar ou importar cadastros.
     // O payload consulta somente a configuração global, inclusive antes da migração.
     delete aluno.unemploymentRate;
+    if (aluno.macroIndividual != null) {
+      var contexto = validarMacro(aluno.macroIndividual);
+      if (!contexto) throw new Error("Contexto macroeconômico individual inválido para o aluno.");
+      aluno.macroIndividual = contexto;
+    }
     if (aluno.dadosPredicao && typeof aluno.dadosPredicao === "object") {
       CAMPOS_MACRO.forEach(function (chave) { delete aluno.dadosPredicao[chave]; });
     }
-    // v4 -> v5: os indicadores macro deixaram de ser por aluno (agora são globais).
-    if (aluno.versaoDados === 4 && aluno.dadosPredicao && typeof aluno.dadosPredicao === "object") {
-      CAMPOS_MACRO.forEach(function (chave) { delete aluno.dadosPredicao[chave]; });
+    // v4/v5 -> v6: mantém os atributos acadêmicos; contexto individual é explícito.
+    if ((aluno.versaoDados === 4 || aluno.versaoDados === 5) && aluno.dadosPredicao && typeof aluno.dadosPredicao === "object") {
       aluno.versaoDados = VERSAO_DADOS;
       return aluno;
     }
@@ -1626,7 +1657,7 @@
     return GRUPOS_PREDICAO.map(function (grupo) {
       var campos = faltantes.filter(function (c) { return c.grupo === grupo; });
       if (!campos.length) return "";
-      if (grupo === "Macroeconômicos") return '<li><strong>Macroeconômicos:</strong> configure em <em>Indicadores macro</em> (cabeçalho); valem para todos os alunos.</li>';
+      if (grupo === "Macroeconômicos") return '<li><strong>Macroeconômicos:</strong> confira os indicadores globais ou o contexto individual em <em>Editar dados</em>.</li>';
       return '<li><strong>' + escapeHtml(grupo) + ':</strong> ' + campos.map(function (c) { return escapeHtml(c.rotulo); }).join("; ") + '</li>';
     }).join("");
   }
@@ -1711,7 +1742,7 @@
       '<div class="meta-item"><span class="meta-label">Possui dívida (debtor)</span><strong class="meta-value">' + escapeHtml(rotuloSimNao(dados.debtor)) + '</strong></div>' +
       '<div class="meta-item"><span class="meta-label">Mensalidades em dia (tuition_fees)</span><strong class="meta-value">' + escapeHtml(rotuloSimNao(dados.tuition_fees_up_to_date)) + '</strong></div>' +
       '<div class="meta-item"><span class="meta-label">Bolsista (scholarship_holder)</span><strong class="meta-value">' + escapeHtml(rotuloSimNao(dados.scholarship_holder)) + '</strong></div>' +
-      '<div class="meta-item"><span class="meta-label">Taxa de desemprego (unemployment_rate)</span><strong class="meta-value">' + (unempVal == null ? "—" : formatarNumeroBR(unempVal) + "%") + '</strong></div>' +
+      '<div class="meta-item"><span class="meta-label">Taxa de desemprego (unemployment_rate) · ' + (aluno.macroIndividual ? 'Contexto individual' : 'Global') + '</span><strong class="meta-value">' + (unempVal == null ? "—" : formatarNumeroBR(unempVal) + "%") + '</strong></div>' +
       '<div class="meta-item"><span class="meta-label">1º Semestre (enrolled / approved / grade)</span><strong class="meta-value">' +
       (dados.curricular_units_1st_sem_enrolled == null ? "—" : dados.curricular_units_1st_sem_enrolled + " matr. · " + (dados.curricular_units_1st_sem_approved || 0) + " aprov. · Nota " + formatarNumeroBR(dados.curricular_units_1st_sem_grade || 0)) +
       '</strong></div>' +
@@ -1820,6 +1851,14 @@
     );
 
     var form = document.getElementById(formId);
+    document.getElementById(prefixo + '-macro-origem').addEventListener('change', function () {
+      var individual = this.value === 'individual';
+      document.getElementById(prefixo + '-macro-individual').hidden = !individual;
+      document.getElementById(prefixo + '-macro-global-nota').hidden = individual;
+      CAMPOS_MACRO.forEach(function (chave) {
+        document.getElementById(prefixo + '-macro-' + chave).disabled = !individual;
+      });
+    });
     atualizarIndicadoresFormulario(prefixo);
     form.addEventListener("input", function () { atualizarIndicadoresFormulario(prefixo); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", fecharModal);
@@ -1838,6 +1877,12 @@
           var valor = state.macro && state.macro[el.getAttribute("data-matricula-macro")];
           el.textContent = valor == null ? "Não configurado" : formatarNumeroBR(valor) + "%";
         });
+        if (document.getElementById(prefixo + '-macro-origem').value === 'global') {
+          CAMPOS_MACRO.forEach(function (chave) {
+            var valor = state.macro && state.macro[chave];
+            document.getElementById(prefixo + '-macro-' + chave).value = valor == null ? '' : valor;
+          });
+        }
         foco.focus({ preventScroll: true });
         caixa.scrollTop = posicao;
       });
@@ -1855,6 +1900,11 @@
         return;
       }
       var dados = lerFormularioPredicao(prefixo);
+      var macroIndividual = lerMacroIndividual(prefixo);
+      if (document.getElementById(prefixo + '-macro-origem').value === 'individual' && !macroIndividual) {
+        mostrarToast('Preencha os três indicadores individuais com valores válidos.', 'erro');
+        return;
+      }
       var atualizado = Object.assign({}, valores, lerDadosIngresso(prefixo, aluno), calcularIndicadoresAcademicos(dados), {
         id: editando ? aluno.id : gerarId(),
         studentId: valor("student-id") || studentId,
@@ -1867,6 +1917,8 @@
         status: editando ? aluno.status : "ativo"
       });
       delete atualizado.unemploymentRate;
+      if (macroIndividual) atualizado.macroIndividual = macroIndividual;
+      else delete atualizado.macroIndividual;
       sincronizarTurno(atualizado);
       var anteriores = state.alunos;
       state.alunos = editando ? anteriores.map(function (a) { return a.id === aluno.id ? atualizado : a; }) : anteriores.concat(atualizado);

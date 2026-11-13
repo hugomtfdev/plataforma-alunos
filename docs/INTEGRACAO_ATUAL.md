@@ -34,14 +34,18 @@ Frequência é informada manualmente e preservada na edição: aprovações não
 permitem inferir presença. A estimativa automática anterior foi removida.
 Os indicadores de acompanhamento não integram os 34 atributos da API.
 
-Desemprego, inflação e PIB são exclusivamente globais, configurados em
-Indicadores macro e exibidos sem edição individual nos formulários. O payload
-sempre usa a configuração global, inclusive para alunos com valores individuais
-antigos. Esses valores legados são descartados ao carregar ou importar os dados.
-Salvar os indicadores atualiza automaticamente as previsões dos alunos ativos
-com dados completos; resultados já consultados podem ser reutilizados do cache.
-O exemplo não altera indicadores globais; se houver divergência, avisa que o
-JSON de referência usa desemprego 10,8%, inflação 1,4% e PIB 1,74%.
+Desemprego, inflação e PIB usam os indicadores globais por padrão. Em matrícula
+ou edição, a opção "Usar contexto individual deste aluno" permite informar os
+três valores para outro país ou período. Nesse modo, o payload usa exclusivamente
+os valores individuais e alterações globais os preservam. Voltar ao modo global
+remove a configuração individual ao salvar e retoma os valores globais atuais.
+Contextos individuais são persistidos em macroIndividual (dados v6) e preservados
+em backups. Substituições antigas em unemploymentRate ou dadosPredicao não são
+reativadas; cadastros v4/v5 continuam seguindo o global até a opção explícita.
+Salvar os indicadores atualiza as previsões dos alunos ativos com dados completos
+cujo payload mudou; resultados já consultados podem ser reutilizados do cache.
+O exemplo não altera os indicadores de nenhum contexto; se houver divergência,
+avisa que a referência usa desemprego 10,8%, inflação 1,4% e PIB 1,74%.
 
 A interface oferece somente um exemplo completo, identificado como preenchimento
 demonstrativo. Os atalhos parciais, os perfis por

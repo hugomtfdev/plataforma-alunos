@@ -164,7 +164,7 @@ test('backup legado usa somente indicadores globais, mesmo sem valor global conf
   await cadastrar(page);
   const resultado = await page.evaluate(() => {
     const t = window.__teste;
-    const antigo = { ...t.state.alunos[0], unemploymentRate: 7.6 };
+    const antigo = { ...t.state.alunos[0], versaoDados: 5, unemploymentRate: 7.6 };
     antigo.dadosPredicao = { ...antigo.dadosPredicao, unemployment_rate: 7.6, inflation_rate: 3, gdp: -2 };
     const migrado = t.interpretarBackup(JSON.stringify([antigo]))[0];
     const payload = t.montarPayload(migrado);
@@ -176,6 +176,90 @@ test('backup legado usa somente indicadores globais, mesmo sem valor global conf
   expect(resultado.migrado.dadosPredicao.unemployment_rate).toBeUndefined();
   expect(resultado.payload).toEqual(exemplo);
   expect(resultado.faltantes).toContain('unemployment_rate');
+});
+
+test('contexto individual preserva os três valores, rascunho e backup; voltar ao global acompanha os valores atuais', async ({ page }) => {
+  await cadastrar(page);
+  await page.getByRole('button', { name: 'Editar dados', exact: true }).click();
+  await page.locator('#e-macro-origem').selectOption('individual');
+  await page.locator('#e-macro-unemployment_rate').fill('7.6');
+  await page.locator('#e-macro-inflation_rate').fill('-0.8');
+  await page.locator('#e-macro-gdp').fill('-3.12');
+  await page.getByRole('button', { name: 'Configurar indicadores globais', exact: true }).click();
+  await page.locator('#m-unemployment_rate').fill('13');
+  await page.locator('#m-inflation_rate').fill('3');
+  await page.locator('#m-gdp').fill('2');
+  await page.locator('#form-macro button[type=submit]').click();
+  await expect(page.locator('#e-macro-unemployment_rate')).toHaveValue('7.6');
+  await expect(page.locator('#e-macro-inflation_rate')).toHaveValue('-0.8');
+  await expect(page.locator('#e-macro-gdp')).toHaveValue('-3.12');
+  await page.getByRole('button', { name: 'Salvar alterações', exact: true }).click();
+  const individual = { unemployment_rate: 7.6, inflation_rate: -0.8, gdp: -3.12 };
+  expect((await alunoSalvo(page)).macroIndividual).toEqual(individual);
+  expect(await page.evaluate(() => window.__teste.montarFeatures(window.__teste.state.alunos[0]))).toEqual({ ...exemplo.features, ...individual });
+  const backup = await page.evaluate(() => {
+    const t = window.__teste;
+    return t.interpretarBackup(JSON.stringify(t.montarBackup()))[0];
+  });
+  expect(backup.macroIndividual).toEqual(individual);
+  await page.reload();
+  await page.getByRole('button', { name: 'Editar aluno', exact: true }).click();
+  await expect(page.locator('#e-macro-origem')).toHaveValue('individual');
+  await expect(page.locator('#e-macro-gdp')).toHaveValue('-3.12');
+  await page.locator('#e-macro-origem').selectOption('global');
+  await expect(page.locator('#e-macro-gdp')).toBeDisabled();
+  await page.getByRole('button', { name: 'Salvar alterações', exact: true }).click();
+  expect((await alunoSalvo(page)).macroIndividual).toBeUndefined();
+  expect(await page.evaluate(() => window.__teste.montarFeatures(window.__teste.state.alunos[0]))).toEqual({ ...exemplo.features, unemployment_rate: 13, inflation_rate: 3, gdp: 2 });
+});
+
+test('contexto individual requer três valores e aceita zero e PIB negativo na matrícula', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: '+ Matricular aluno', exact: true }).click();
+  await page.getByRole('button', { name: 'Preencher exemplo', exact: true }).click();
+  await page.locator('#f-nome').fill('Contexto específico');
+  await page.locator('#f-email').fill('contexto@example.com');
+  await page.locator('#f-macro-origem').selectOption('individual');
+  await page.locator('#f-macro-unemployment_rate').fill('');
+  await page.getByRole('button', { name: 'Salvar matrícula', exact: true }).click();
+  await expect(page.locator('#modal-overlay')).toBeVisible();
+  expect(await page.evaluate(() => window.__teste.state.alunos.length)).toBe(0);
+  await page.locator('#f-macro-unemployment_rate').fill('0');
+  await page.locator('#f-macro-inflation_rate').fill('0');
+  await page.locator('#f-macro-gdp').fill('-2');
+  expect(await page.locator('#modal-box').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await page.locator('#f-macro-unemployment_rate').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('contexto-individual-celular.png') });
+  await page.getByRole('button', { name: 'Salvar matrícula', exact: true }).click();
+  expect((await alunoSalvo(page)).macroIndividual).toEqual({ unemployment_rate: 0, inflation_rate: 0, gdp: -2 });
+  expect(await page.evaluate(() => window.__teste.montarFeatures(window.__teste.state.alunos[0]))).toEqual({ ...exemplo.features, unemployment_rate: 0, inflation_rate: 0, gdp: -2 });
+});
+
+test('alteração global envia nova consulta apenas para aluno global, preservando o individual', async ({ page }) => {
+  await cadastrar(page);
+  const consultas = [];
+  await page.route('https://prediction.test/api/v1/predictions', async route => {
+    const payload = route.request().postDataJSON();
+    consultas.push(payload);
+    await route.fulfill({ json: { studentId: payload.studentId, dropout_probability: 0.5 } });
+  });
+  await page.evaluate(async () => {
+    const t = window.__teste;
+    t.state.alunos.push({ ...t.state.alunos[0], id: 'individual', studentId: 'INDIVIDUAL', macroIndividual: { unemployment_rate: 8, inflation_rate: 0, gdp: -2 } });
+    t.state.apiConfig = { url: 'https://prediction.test/api/v1/predictions', token: 'test-only' };
+    await Promise.all(t.state.alunos.map(a => t.preverRisco(a)));
+  });
+  expect(consultas).toHaveLength(2);
+  await page.getByRole('button', { name: 'Indicadores macro', exact: true }).click();
+  await page.locator('#m-unemployment_rate').fill('13');
+  await page.locator('#m-inflation_rate').fill('3');
+  await page.locator('#m-gdp').fill('2');
+  await page.locator('#form-macro button[type=submit]').click();
+  await expect.poll(() => consultas.length).toBe(3);
+  await expect.poll(() => page.evaluate(() => window.__teste.state.lote.status)).toBe('ocioso');
+  expect(consultas[2].studentId).toBe(exemplo.studentId);
+  expect(consultas[2].features).toEqual({ ...exemplo.features, unemployment_rate: 13, inflation_rate: 3, gdp: 2 });
+  expect(await page.evaluate(() => window.__teste.montarFeatures(window.__teste.state.alunos[1]))).toEqual({ ...exemplo.features, unemployment_rate: 8, inflation_rate: 0, gdp: -2 });
 });
 
 test('duplicidade, limites numéricos e falha de armazenamento não alteram os dados', async ({ page }) => {

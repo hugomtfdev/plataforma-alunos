@@ -19,7 +19,7 @@ Abaixo, a visualização da ficha individual do estudante com os indicadores cad
 - **Gestão Cadastral Completa:** Cadastro simplificado de estudantes com validação preventiva de e-mail único, seleção de turno e edição detalhada de dados socioeconômicos e acadêmicos.
 - **Predição de Risco de Evasão:** Integração com modelo de Machine Learning que calcula a probabilidade percentual de evasão e categoriza o risco em *Baixo Risco* (< 40%), *Médio Risco* (40% a 69%) e *Alto Risco* (≥ 70%).
 - **Inferência Individual e em Lote:** Suporte a predições pontuais na ficha do estudante e predições em lote (`batch`) na listagem geral com sistema de cache inteligente.
-- **Painel de Indicadores Macroeconômicos:** Módulo global para configuração de taxas econômicas (desemprego, inflação e PIB) compartilhadas entre todos os estudantes, com aviso de conformidade às faixas estatísticas do modelo.
+- **Painel de Indicadores Macroeconômicos:** Desemprego, inflação e PIB globais por padrão, com opção de contexto individual por estudante para outro período ou local. Alterações globais preservam os contextos individuais.
 - **Filtros e Busca Dinâmica:** Pesquisa instantânea por nome ou curso, com filtros combinados por nível de risco, turno e cursos ativos com contagem automática de matriculados.
 - **Monitoramento de Conectividade:** Indicador em tempo real do status de comunicação com a API de inferência (`Online`, `Offline` ou `Modelo não carregado`).
 - **Segurança e Backup de Dados:** Exportação e importação de bases de dados completas em formato JSON, com validação de integridade e opção de mesclagem ou substituição.

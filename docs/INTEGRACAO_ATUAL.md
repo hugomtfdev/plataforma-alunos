@@ -15,11 +15,24 @@ preenche os valores de referência. As categorias do JSON são índices do model
 o formulário converte esses índices para os códigos UCI internos e o envio os
 converte de volta, uma única vez. A ordem dos catálogos deve ser preservada.
 
-A matrícula organiza os campos em identificação e matrícula, perfil e ingresso,
+Matrícula e edição compartilham o mesmo formulário, com os campos salvos
+preenchidos na edição, as mesmas validações e o mesmo fluxo de persistência.
+Ambas organizam os campos em identificação e matrícula, perfil e ingresso,
 família e condições de apoio, situação financeira, desempenho acadêmico por
 semestre e indicadores macroeconômicos. A configuração global de indicadores
 pode ser aberta durante o preenchimento, com retorno à matrícula sem perder
-os campos já informados. Essa organização não altera o contrato de envio.
+os campos já informados, tanto na matrícula quanto na edição. Essa organização
+não altera o contrato de envio.
+
+O acompanhamento acadêmico também é compartilhado. A média visual (0–10) é
+a média simples das notas dos dois semestres (0–20), dividida por dois e
+arredondada para uma casa decimal. Reprovações somam a diferença não negativa
+entre matriculadas e aprovadas de cada semestre. Os indicadores são recalculados
+durante o preenchimento e ao salvar; quando faltam os valores necessários,
+ficam pendentes (null), sem substituir dados ausentes por zero.
+Frequência é informada manualmente e preservada na edição: aprovações não
+permitem inferir presença. A estimativa automática anterior foi removida.
+Os indicadores de acompanhamento não integram os 34 atributos da API.
 
 Inflação e PIB continuam compartilhados, configurados em Indicadores macro e
 visíveis no formulário. Desemprego aceita valor individual, com fallback global.

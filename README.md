@@ -51,7 +51,7 @@ Por não exigir processo de compilação ou instalação de pacotes:
    git clone https://github.com/hugomtfdev/plataforma-alunos.git
    cd plataforma-alunos
    ```
-2. Abra o arquivo **`gestao-alunos.html`** diretamente em qualquer navegador moderno (Chrome, Edge, Firefox, Safari); ou
+2. Abra o arquivo **`index.html`** diretamente em qualquer navegador moderno (Chrome, Edge, Firefox, Safari); ou
 3. Caso utilize o VS Code, inicie com a extensão *Live Server* ou pressione `F5`.
 
 ### 2. Conectando à API de Predição (Opcional)
@@ -90,7 +90,7 @@ Quando a API estiver offline ou inacessível, a plataforma mantém todas as fun�
 
 ```text
 plataforma-alunos/
-├── gestao-alunos.html       # Interface principal da aplicação e janelas modais
+├── index.html               # Interface principal da aplicação e janelas modais
 ├── style.css                # Folha de estilos, variáveis visuais e responsividade
 ├── script.js                # Lógica da interface, validações e integração HTTP
 ├── catalogos.js             # Mapeamento de cursos, ocupações e perfis de referência
@@ -100,3 +100,13 @@ plataforma-alunos/
 └── .vscode/
     └── launch.json          # Configuração de inicialização rápida no VS Code
 ```
+
+## Testes de regressão
+
+Com Node.js e Google Chrome instalados, execute `npm ci` e `npm test`.
+O Playwright abre a plataforma diretamente pelo arquivo local em sessões
+isoladas, sem usar os dados do seu navegador ou chamar a API real.
+Os testes cobrem equivalência entre matrícula e edição, preservação do payload
+com 34 atributos, recálculo e persistência dos indicadores, dados incompletos,
+retorno dos indicadores globais, validações, falha de armazenamento e tela de celular.
+As dependências npm são usadas apenas no desenvolvimento.

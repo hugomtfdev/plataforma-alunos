@@ -848,7 +848,7 @@
       '<div class="field">' +
       '<label for="cfg-token">Token Bearer (Kasper AI Studio)</label>' +
       '<input id="cfg-token" type="text" class="input-mono" placeholder="Cole aqui o token gerado (ex: edupredict_sk_...)" value="' + escapeHtml(atual.token || "") + '" autocomplete="off" spellcheck="false" />' +
-      '<span class="field-hint">Enviado como <code>Authorization: Bearer &lt;token&gt;</code> e <code>X-API-KEY</code>.</span>' +
+      '<span class="field-hint">Enviado no cabeçalho de autorização como <code>Bearer &lt;token&gt;</code>.</span>' +
       '</div>' +
       '<div class="field">' +
       '<label for="cfg-url">URL do Endpoint de Predição</label>' +

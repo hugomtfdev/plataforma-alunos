@@ -315,9 +315,6 @@
   function valorDoCampo(aluno, campo) {
     var valor;
     if (campo.chave === "course") valor = aluno.cursoCodigo;
-    else if (campo.chave === "unemployment_rate" && aluno && typeof aluno.unemploymentRate === "number" && isFinite(aluno.unemploymentRate) && state.macro) {
-      valor = aluno.unemploymentRate;
-    }
     else if (campo.global) valor = state.macro ? state.macro[campo.chave] : null;
     else valor = (aluno.dadosPredicao || {})[campo.chave];
     return valor == null || valor === "" ? null : valor;
@@ -357,7 +354,7 @@
         grade(["enrolled", "credited", "approved", "evaluations", "without_evaluations", "grade"].map(function (chave) { return prefixo + chave; })) + '</div>';
     }).join("");
     var macro = state.macro || {};
-    var globais = ["inflation_rate", "gdp"].map(function (chave) {
+    var globais = CAMPOS_MACRO.map(function (chave) {
       return '<div class="meta-item"><span class="meta-label">' + escapeHtml(campoMacro(chave).rotulo) + '</span>' +
         '<strong class="meta-value" data-matricula-macro="' + chave + '">' +
         (macro[chave] == null ? 'Não configurado' : formatarNumeroBR(macro[chave]) + '%') + '</strong></div>';
@@ -372,9 +369,8 @@
     ])) + secao('Situação financeira', grade(['debtor', 'tuition_fees_up_to_date', 'scholarship_holder'])) +
       secao('Desempenho acadêmico', semestres) +
       secao('Indicadores macroeconômicos',
-        grade(['unemployment_rate']) +
         '<div class="enrollment-macro"><div class="meta-grid">' + globais + '</div>' +
-        '<p class="form-section-note">Inflação e PIB são compartilhados por todos os alunos. O desemprego permite um valor individual; se ficar vazio, será usado o indicador global.</p>' +
+        '<p class="form-section-note">Desemprego, inflação e PIB são indicadores globais compartilhados por todos os alunos. Altere-os em Configurar indicadores globais; os novos valores serão usados nas previsões de todos os alunos.</p>' +
         '<button type="button" class="btn btn-secondary btn-sm" id="btn-matricula-macro">Configurar indicadores globais</button></div>');
   }
 
@@ -393,7 +389,7 @@
   }
 
   function alunoDoPayloadExemplo(payload) {
-    var aluno = { studentId: payload.studentId, dadosPredicao: {}, unemploymentRate: payload.features.unemployment_rate };
+    var aluno = { studentId: payload.studentId, dadosPredicao: {} };
     CAMPOS_PREDICAO.forEach(function (campo) {
       var valor = payload.features[campo.chave];
       if (campo.tipo === "catalogo") {
@@ -411,9 +407,9 @@
   function preencherExemploCompleto(prefixo) {
     var aluno = alunoDoPayloadExemplo(PAYLOAD_EXEMPLO_COMPLETO);
     CAMPOS_PREDICAO.forEach(function (campo) {
-      if (campo.global && campo.chave !== "unemployment_rate") return;
+      if (campo.global) return;
       var el = document.getElementById(campo.cadastro ? prefixo + "-curso" : prefixo + "-p-" + campo.chave);
-      var valor = campo.cadastro ? aluno.cursoCodigo : campo.chave === "unemployment_rate" ? aluno.unemploymentRate : aluno.dadosPredicao[campo.chave];
+      var valor = campo.cadastro ? aluno.cursoCodigo : aluno.dadosPredicao[campo.chave];
       if (el) el.value = String(valor);
     });
     var elTurno = document.getElementById(prefixo + "-turno");
@@ -421,15 +417,8 @@
     atualizarIndicadoresFormulario(prefixo);
     document.getElementById(prefixo + "-student-id").value = aluno.studentId;
     var macro = state.macro || {};
-    var diferentes = ["inflation_rate", "gdp"].some(function (chave) { return macro[chave] !== PAYLOAD_EXEMPLO_COMPLETO.features[chave]; });
-    mostrarToast(diferentes ? "Exemplo preenchido. Para reproduzir todos os valores do exemplo, configure inflação 1,4% e PIB 1,74% em Indicadores macro." : "Exemplo preenchido. Confira e salve.");
-  }
-
-  function lerUnemploymentRateIndividual(prefixo) {
-    var el = document.getElementById(prefixo + "-p-unemployment_rate");
-    if (!el || el.value === "") return null;
-    var n = Number(el.value);
-    return isFinite(n) ? n : null;
+    var diferentes = CAMPOS_MACRO.some(function (chave) { return macro[chave] !== PAYLOAD_EXEMPLO_COMPLETO.features[chave]; });
+    mostrarToast(diferentes ? "Exemplo preenchido. Para reproduzir todos os valores do exemplo, configure desemprego 10,8%, inflação 1,4% e PIB 1,74% em Indicadores macro." : "Exemplo preenchido. Confira e salve.");
   }
 
   function formatarData(iso) {
@@ -1257,6 +1246,12 @@
   /* ---------------- armazenamento ---------------- */
 
   function migrarAluno(aluno) {
+    // Descarta substituições individuais legadas ao carregar ou importar cadastros.
+    // O payload consulta somente a configuração global, inclusive antes da migração.
+    delete aluno.unemploymentRate;
+    if (aluno.dadosPredicao && typeof aluno.dadosPredicao === "object") {
+      CAMPOS_MACRO.forEach(function (chave) { delete aluno.dadosPredicao[chave]; });
+    }
     // v4 -> v5: os indicadores macro deixaram de ser por aluno (agora são globais).
     if (aluno.versaoDados === 4 && aluno.dadosPredicao && typeof aluno.dadosPredicao === "object") {
       CAMPOS_MACRO.forEach(function (chave) { delete aluno.dadosPredicao[chave]; });
@@ -1867,11 +1862,11 @@
         email: email,
         turno: valor("turno"),
         frequencia: valor("freq") === "" ? null : Number(valor("freq")),
-        unemploymentRate: lerUnemploymentRateIndividual(prefixo),
         dadosPredicao: dados,
         versaoDados: VERSAO_DADOS,
         status: editando ? aluno.status : "ativo"
       });
+      delete atualizado.unemploymentRate;
       sincronizarTurno(atualizado);
       var anteriores = state.alunos;
       state.alunos = editando ? anteriores.map(function (a) { return a.id === aluno.id ? atualizado : a; }) : anteriores.concat(atualizado);

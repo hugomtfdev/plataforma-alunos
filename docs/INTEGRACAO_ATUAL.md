@@ -34,10 +34,14 @@ Frequência é informada manualmente e preservada na edição: aprovações não
 permitem inferir presença. A estimativa automática anterior foi removida.
 Os indicadores de acompanhamento não integram os 34 atributos da API.
 
-Inflação e PIB continuam compartilhados, configurados em Indicadores macro e
-visíveis no formulário. Desemprego aceita valor individual, com fallback global.
+Desemprego, inflação e PIB são exclusivamente globais, configurados em
+Indicadores macro e exibidos sem edição individual nos formulários. O payload
+sempre usa a configuração global, inclusive para alunos com valores individuais
+antigos. Esses valores legados são descartados ao carregar ou importar os dados.
+Salvar os indicadores atualiza automaticamente as previsões dos alunos ativos
+com dados completos; resultados já consultados podem ser reutilizados do cache.
 O exemplo não altera indicadores globais; se houver divergência, avisa que o
-JSON de referência usa inflação 1,4% e PIB 1,74%.
+JSON de referência usa desemprego 10,8%, inflação 1,4% e PIB 1,74%.
 
 A interface oferece somente um exemplo completo, identificado como preenchimento
 demonstrativo. Os atalhos parciais, os perfis por
